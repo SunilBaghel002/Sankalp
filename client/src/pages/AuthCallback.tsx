@@ -7,26 +7,25 @@ const AuthCallback: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-  const code = searchParams.get("code");
-  if (!code) {
-    navigate("/");
-    return;
-  }
-
-  fetch("http://127.0.0.1:8000/auth/google/callback", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ code }),
-  }).then((res) => {
-    if (res.ok) {
-      // CRITICAL: Wait for cookie to be readable
-      setTimeout(() => navigate("/pay-deposit", { replace: true }), 1000);
-    } else {
+    const code = searchParams.get("code");
+    if (!code) {
       navigate("/");
+      return;
     }
-  });
-}, [searchParams, navigate]);
+
+    fetch("http://127.0.0.1:8000/auth/google/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ code }),
+    }).then((res) => {
+      if (res.ok) {
+        setTimeout(() => navigate("/pay-deposit", { replace: true }), 1000); // This fixes the 401
+      } else {
+        navigate("/");
+      }
+    });
+  }, [searchParams, navigate]);
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white text-2xl font-bold">
