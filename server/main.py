@@ -55,6 +55,8 @@ async def google_callback(data: dict, session: Session = Depends(get_session)):
             "grant_type": "authorization_code",
         },
     )
+    
+    print("Google response:", token_resp.status_code, token_resp.text)  # ← ADD THIS
 
     if token_resp.status_code != 200:
         print("Google error:", token_resp.text)  # ← This will show the real error

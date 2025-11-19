@@ -9,7 +9,7 @@ const AuthCallback: React.FC = () => {
   useEffect(() => {
     const code = searchParams.get("code");
     if (!code) {
-      navigate("/");
+      navigate("/", { replace: true });
       return;
     }
 
@@ -18,13 +18,20 @@ const AuthCallback: React.FC = () => {
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ code }),
-    }).then((res) => {
-      if (res.ok) {
-        setTimeout(() => navigate("/pay-deposit", { replace: true }), 1000); // This fixes the 401
-      } else {
-        navigate("/");
-      }
-    });
+    })
+      .then((res) => {
+        if (res.ok) {
+          // This prevents double execution + gives cookie time to set
+          setTimeout(() => {
+            navigate("/pay-deposit", { replace: true });
+          }, 500);
+        } else {
+          navigate("/", { replace: true });
+        }
+      })
+      .catch(() => {
+        navigate("/", { replace: true });
+      });
   }, [searchParams, navigate]);
 
   return (
