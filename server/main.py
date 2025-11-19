@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from typing import List
+from pydantic import BaseModel
 
 from database import create_db_and_tables, get_session
 from models import User, Habit
@@ -33,11 +34,12 @@ def on_startup():
 # -----------------------------
 # NEW: Google OAuth2 Callback (Authorization Code Flow)
 # -----------------------------
+
+class GoogleCode(BaseModel):
+    code: str
 @app.post("/auth/google/callback")
-async def google_oauth_callback(data: dict, session: Session = Depends(get_session)):
-    code = data.get("code")
-    if not code:
-        raise HTTPException(status_code=400, detail="No authorization code provided")
+async def google_oauth_callback(request: GoogleCode, session: Session = Depends(get_session)):
+    code = request.code
 
     # Exchange code for tokens
     token_response = requests.post(
@@ -52,14 +54,13 @@ async def google_oauth_callback(data: dict, session: Session = Depends(get_sessi
     )
 
     if token_response.status_code != 200:
-        raise HTTPException(status_code=400, detail="Failed to exchange code for token")
+        raise HTTPException(status_code=400, detail="Failed to get token from Google")
 
-    tokens = token_response.json()
-    id_token = tokens.get("id_token")
+    id_token = token_response.json().get("id_token")
     if not id_token:
-        raise HTTPException(status_code=400, detail="No id_token received")
+        raise HTTPException(status_code=400, detail="No id_token from Google")
 
-    # Verify the ID token
+    # Verify token
     payload = verify_google_token(id_token)
 
     # Find or create user
@@ -68,24 +69,24 @@ async def google_oauth_callback(data: dict, session: Session = Depends(get_sessi
         user = User(
             email=payload["email"],
             name=payload.get("name", "User"),
-            google_id=payload["sub"]
+            google_id=payload["sub"],
         )
         session.add(user)
         session.commit()
         session.refresh(user)
 
-    # Create our own JWT and set cookie
-    access_token = create_access_token(data={"sub": user.email})
+    # Create JWT and set cookie
+    access_token = create_access_token({"sub": user.email})
 
     response = JSONResponse({"message": "Login successful"})
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        max_age=30 * 24 * 60 * 60,  # 30 days
-        expires=30 * 24 * 60 * 60,
-        secure=False,  # Set True in production with HTTPS
+        max_age=30*24*60*60,
+        secure=False,
         samesite="lax",
+        path="/",
     )
     return response
 

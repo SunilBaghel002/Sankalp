@@ -8,9 +8,7 @@ const AuthCallback: React.FC = () => {
 
   useEffect(() => {
     const code = searchParams.get("code");
-    const error = searchParams.get("error");
-
-    if (error || !code) {
+    if (!code) {
       navigate("/");
       return;
     }
@@ -19,7 +17,7 @@ const AuthCallback: React.FC = () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code }), // ← This now matches GoogleCode model
     })
       .then((res) => {
         if (res.ok) {
@@ -32,8 +30,8 @@ const AuthCallback: React.FC = () => {
   }, [searchParams, navigate]);
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white text-xl">
-      Completing your login...
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white text-2xl font-bold">
+      Completing login...
     </div>
   );
 };
