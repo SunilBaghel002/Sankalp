@@ -42,30 +42,28 @@ def on_startup():
 async def google_callback(data: dict, session: Session = Depends(get_session)):
     code = data.get("code")
     if not code:
-        raise HTTPException(status_code=400, detail="No code provided")
+        raise HTTPException(400, "No code")
 
-    # Exchange code for id_token
-    token_resp = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "code": code,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": "http://localhost:5173/auth/callback",
-            "grant_type": "authorization_code",
-        },
-    )
-    
-    print("Google response:", token_resp.status_code, token_resp.text)  # ← ADD THIS
+    # Add this: prevent reuse
+    if hasattr(request.state, "code_used"):
+        return JSONResponse({"message": "Already processed"})
+
+    token_resp = requests.post("https://oauth2.googleapis.com/token", data={
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": "http://localhost:5173/auth/callback",
+        "grant_type": "authorization_code",
+    })
 
     if token_resp.status_code != 200:
-        print("Google error:", token_resp.text)  # ← This will show the real error
-        raise HTTPException(status_code=400, detail="Failed to get token from Google")
+        print("Google error:", token_resp.json())
+        raise HTTPException(400, "Invalid grant")
+
+    # Mark as used (simple way)
+    request.state.code_used = True
 
     id_token = token_resp.json().get("id_token")
-    if not id_token:
-        raise HTTPException(status_code=400, detail="No id_token")
-
     payload = verify_google_token(id_token)
 
     # Find or create user
@@ -81,17 +79,17 @@ async def google_callback(data: dict, session: Session = Depends(get_session)):
         session.refresh(user)
 
     # Create JWT and set cookie
-    access_token = create_access_token({"sub": user.email})
+    access_token = create_access_token({"sub": payload["email"]})
 
-    response = JSONResponse({"message": "Success"})
+    response = JSONResponse({"success": true})
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        max_age=2592000,
         secure=False,
         samesite="lax",
         path="/",
+        max_age=30 * 24 * 60 * 60,
     )
     return response
 
