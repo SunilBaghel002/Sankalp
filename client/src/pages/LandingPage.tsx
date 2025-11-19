@@ -1,11 +1,24 @@
-import React, { useState } from "react";
+// src/pages/LandingPage.tsx
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Flame, Target, Trophy, ChevronRight } from "lucide-react";
+import { checkAuth } from "../lib/auth";
 
 const LandingPage: React.FC = () => {
   const [step, setStep] = useState(0);
+  const [checking, setChecking] = useState(true);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    checkAuth().then((isLoggedIn) => {
+      if (isLoggedIn) {
+        navigate("/pay-deposit", { replace: true });
+      } else {
+        setChecking(false);
+      }
+    });
+  }, [navigate]);
 
   const slides = [
     {
@@ -24,6 +37,14 @@ const LandingPage: React.FC = () => {
       subtitle: "Winners get ₹500 back + exclusive perks",
     },
   ];
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-orange-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-orange-900 to-slate-900 text-white">
