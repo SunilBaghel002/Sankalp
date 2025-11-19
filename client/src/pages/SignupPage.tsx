@@ -3,17 +3,16 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Flame, Mail } from "lucide-react";
+import { checkAuth } from "../lib/auth";
 
-// Your Google Client ID from Google Cloud Console
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID // ← CHANGE THIS!
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-// API call to your FastAPI backend
 const api = {
   googleLogin: async (idToken: string) => {
     const res = await fetch("http://127.0.0.1:8000/auth/google", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include", // This sends & receives cookies
+      credentials: "include",
       body: JSON.stringify({ token: idToken }),
     });
     if (!res.ok) throw new Error("Login failed");
@@ -23,37 +22,53 @@ const api = {
 
 const SignupPage: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start with loading
 
-  // Step 1: Trigger Google OAuth
-  const handleGoogleSignup = () => {
-    setLoading(true);
-    const redirectUri = encodeURIComponent("http://localhost:5173/");
-    const scope = encodeURIComponent("email profile openid");
+  // Check if already logged in
+  useEffect(() => {
+    checkAuth().then((loggedIn) => {
+      if (loggedIn) {
+        navigate("/pay-deposit", { replace: true });
+      } else {
+        setLoading(false);
+      }
+    });
+  }, [navigate]);
 
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}`;
-
-    window.location.href = authUrl;
-  };
-
-  // Step 2: Catch the token from URL after Google redirects back
+  // Handle Google callback
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith("#access_token")) {
       const token = hash.split("access_token=")[1].split("&")[0];
-      setLoading(true);
 
       api
         .googleLogin(token)
         .then(() => {
-          navigate("/pay-deposit"); // Or directly to /onboarding if you want
+          // Clean URL + redirect
+          window.history.replaceState({}, "", "/");
+          navigate("/pay-deposit", { replace: true });
         })
         .catch((err) => {
           alert("Login failed: " + err.message);
-          setLoading(false);
+          window.history.replaceState({}, "", "/signup");
         });
     }
   }, [navigate]);
+
+  const handleGoogleSignup = () => {
+    const redirectUri = encodeURIComponent("http://localhost:5173/");
+    const scope = encodeURIComponent("email profile openid");
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}`;
+    window.location.href = authUrl;
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-orange-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
@@ -72,16 +87,10 @@ const SignupPage: React.FC = () => {
 
         <button
           onClick={handleGoogleSignup}
-          disabled={loading}
-          className="w-full bg-white text-slate-900 py-4 rounded-lg font-semibold flex items-center justify-center gap-3 hover:bg-slate-100 mb-4 disabled:opacity-70"
+          className="w-full bg-white text-slate-900 py-4 rounded-lg font-semibold flex items-center justify-center gap-3 hover:bg-slate-100"
         >
           <Mail className="w-5 h-5" />
-          {loading ? "Connecting..." : "Continue with Google"}
-        </button>
-
-        <button className="w-full bg-orange-500 text-white py-4 rounded-lg font-semibold flex items-center justify-center gap-3 hover:bg-orange-600 opacity-60 cursor-not-allowed">
-          <Mail className="w-5 h-5" />
-          Continue with Email (Coming Soon)
+          Continue with Google
         </button>
 
         <p className="text-xs text-slate-500 text-center mt-6">
