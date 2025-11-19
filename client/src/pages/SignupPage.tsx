@@ -22,7 +22,7 @@ const api = {
 
 const SignupPage: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true); // Start with loading
+  const [isLoading, setIsLoading] = useState(true); // ← Fixed name
 
   // Check if already logged in
   useEffect(() => {
@@ -34,12 +34,10 @@ const SignupPage: React.FC = () => {
       const loggedIn = await checkAuth();
       if (loggedIn) {
         navigate("/pay-deposit", { replace: true });
-      } else if (attempt < 5) {
-        // Retry up to 5 times with delay (Google cookie sometimes takes 1-2 seconds)
-        setTimeout(() => tryCheck(attempt + 1), 800);
+      } else if (attempt < 6) {
+        setTimeout(() => tryCheck(attempt + 1), 1000);
       } else {
-        setChecking(false);
-        setLoading(false);
+        setIsLoading(false); // ← Now using correct state
       }
     };
 
@@ -59,13 +57,13 @@ const SignupPage: React.FC = () => {
       api
         .googleLogin(token)
         .then(() => {
-          // Clean URL + redirect
           window.history.replaceState({}, "", "/");
           navigate("/pay-deposit", { replace: true });
         })
         .catch((err) => {
           alert("Login failed: " + err.message);
           window.history.replaceState({}, "", "/signup");
+          setIsLoading(false);
         });
     }
   }, [navigate]);
@@ -77,7 +75,7 @@ const SignupPage: React.FC = () => {
     window.location.href = authUrl;
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-orange-500"></div>

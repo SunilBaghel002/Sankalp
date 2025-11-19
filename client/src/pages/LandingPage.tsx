@@ -7,33 +7,31 @@ import { checkAuth } from "../lib/auth";
 
 const LandingPage: React.FC = () => {
   const [step, setStep] = useState(0);
-  const [checking, setChecking] = useState(true);
+  const [isChecking, setIsChecking] = useState(true); // ← Fixed name
   const navigate = useNavigate();
 
   useEffect(() => {
-  let mounted = true;
+    let mounted = true;
 
-  const tryCheck = async (attempt = 1) => {
-    if (!mounted) return;
+    const tryCheck = async (attempt = 1) => {
+      if (!mounted) return;
 
-    const loggedIn = await checkAuth();
-    if (loggedIn) {
-      navigate("/pay-deposit", { replace: true });
-    } else if (attempt < 5) {
-      // Retry up to 5 times with delay (Google cookie sometimes takes 1-2 seconds)
-      setTimeout(() => tryCheck(attempt + 1), 800);
-    } else {
-      setChecking(false);
-      setLoading(false);
-    }
-  };
+      const loggedIn = await checkAuth();
+      if (loggedIn) {
+        navigate("/pay-deposit", { replace: true });
+      } else if (attempt < 6) {
+        setTimeout(() => tryCheck(attempt + 1), 1000);
+      } else {
+        setIsChecking(false); // ← Now using correct state
+      }
+    };
 
-  tryCheck();
+    tryCheck();
 
-  return () => {
-    mounted = false;
-  };
-}, [navigate]);
+    return () => {
+      mounted = false;
+    };
+  }, [navigate]);
 
   const slides = [
     {
@@ -53,7 +51,7 @@ const LandingPage: React.FC = () => {
     },
   ];
 
-  if (checking) {
+  if (isChecking) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-orange-500"></div>
