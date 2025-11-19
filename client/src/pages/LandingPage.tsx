@@ -11,14 +11,29 @@ const LandingPage: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    checkAuth().then((isLoggedIn) => {
-      if (isLoggedIn) {
-        navigate("/pay-deposit", { replace: true });
-      } else {
-        setChecking(false);
-      }
-    });
-  }, [navigate]);
+  let mounted = true;
+
+  const tryCheck = async (attempt = 1) => {
+    if (!mounted) return;
+
+    const loggedIn = await checkAuth();
+    if (loggedIn) {
+      navigate("/pay-deposit", { replace: true });
+    } else if (attempt < 5) {
+      // Retry up to 5 times with delay (Google cookie sometimes takes 1-2 seconds)
+      setTimeout(() => tryCheck(attempt + 1), 800);
+    } else {
+      setChecking(false);
+      setLoading(false);
+    }
+  };
+
+  tryCheck();
+
+  return () => {
+    mounted = false;
+  };
+}, [navigate]);
 
   const slides = [
     {
