@@ -79,3 +79,19 @@ async def mark_deposit_paid(user: User = Depends(get_current_user), session: Ses
     session.add(user)
     session.commit()
     return {"message": "Deposit marked as paid"}
+
+@app.post("/auth/google/callback")
+async def google_callback(code: dict, session: Session = Depends(get_session)):
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code["code"],
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),  # Add this to .env
+        "redirect_uri": "http://localhost:5173/auth/callback",
+        "grant_type": "authorization_code",
+    }
+    token_res = requests.post(token_url, data=data)
+    token_res.raise_for_status()
+    id_token = token_res.json()["id_token"]
+
+    payload = verify_google_token(id_token)
