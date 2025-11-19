@@ -1,3 +1,5 @@
+# server/main.py
+
 import os
 import requests
 from fastapi import FastAPI, Depends, HTTPException
@@ -22,90 +24,112 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
-# CORS
+# ✅ FIXED CORS - Added more permissive settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",  # Added this
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],  # Added this
 )
 
 @app.on_event("startup")
 def on_startup():
     create_db_and_tables()
 
-# ────────────────────────────────
-# Google OAuth2 Authorization Code Flow
-# ────────────────────────────────
-# class CodeRequest(BaseModel):
-#     code: str
+# ✅ ADD THIS: Pydantic model for request body
+class GoogleCallbackRequest(BaseModel):
+    code: str
 
+# ✅ FIXED: Google OAuth callback endpoint
 @app.post("/auth/google/callback")
 async def google_callback(
-    request: Request,                    # ← Add Request dependency
-    data: dict,
+    request_body: GoogleCallbackRequest,  # ✅ Changed from data: dict
     session: Session = Depends(get_session)
 ):
-    code = data.get("code")
+    code = request_body.code
     if not code:
         raise HTTPException(400, "No code provided")
 
-    # Prevent double-use of code
-    if getattr(request.state, "code_used", False):
-        return JSONResponse({"message": "Code already used"})
+    logging.info(f"Received Google auth code: {code[:20]}...")
 
-    token_resp = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "code": code,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": "http://localhost:5173/auth/callback",
-            "grant_type": "authorization_code",
-        },
-    )
-
-    print("Google token response:", token_resp.status_code, token_resp.text)
-
-    if token_resp.status_code != 200:
-        raise HTTPException(400, f"Google error: {token_resp.text}")
-
-    request.state.code_used = True  # Mark as used
-
-    id_token = token_resp.json().get("id_token")
-    if not id_token:
-        raise HTTPException(400, "No id_token received")
-
-    payload = verify_google_token(id_token)
-
-    # Find or create user
-    user = session.exec(select(User).where(User.google_id == payload["sub"])).first()
-    if not user:
-        user = User(
-            email=payload["email"],
-            name=payload.get("name", "User"),
-            google_id=payload["sub"],
+    try:
+        # Exchange code for tokens
+        token_resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": "http://localhost:5173/auth/callback",
+                "grant_type": "authorization_code",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
 
-    # Set JWT cookie
-    access_token = create_access_token({"sub": payload["email"]})
+        logging.info(f"Google token response: {token_resp.status_code}")
 
-    response = JSONResponse({"success": true})
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=False,           # True in production
-        samesite="lax",
-        path="/",
-        max_age=30 * 24 * 60 * 60,
-    )
-    print(f"Setting cookie: access_token = {access_token[:50]}...")
-    return response
+        if token_resp.status_code != 200:
+            logging.error(f"Google error: {token_resp.text}")
+            raise HTTPException(400, f"Google token exchange failed: {token_resp.text}")
+
+        token_data = token_resp.json()
+        id_token = token_data.get("id_token")
+        
+        if not id_token:
+            raise HTTPException(400, "No id_token received from Google")
+
+        # Verify the ID token
+        payload = verify_google_token(id_token)
+        logging.info(f"Verified user: {payload.get('email')}")
+
+        # Find or create user
+        user = session.exec(select(User).where(User.google_id == payload["sub"])).first()
+        
+        if not user:
+            user = User(
+                email=payload["email"],
+                name=payload.get("name", "User"),
+                google_id=payload["sub"],
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            logging.info(f"Created new user: {user.email}")
+        else:
+            logging.info(f"Found existing user: {user.email}")
+
+        # Create JWT token
+        access_token = create_access_token({"sub": user.email})
+        logging.info(f"Generated JWT token for {user.email}")
+
+        # ✅ FIXED: Changed true to True (Python boolean)
+        response = JSONResponse({"success": True, "user": {"email": user.email, "name": user.name}})
+        
+        # Set cookie
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",
+            path="/",
+            max_age=30 * 24 * 60 * 60,  # 30 days
+        )
+        
+        logging.info(f"Cookie set for user: {user.email}")
+        return response
+
+    except requests.RequestException as e:
+        logging.error(f"Request error: {str(e)}")
+        raise HTTPException(500, f"Failed to communicate with Google: {str(e)}")
+    except Exception as e:
+        logging.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(500, f"Authentication failed: {str(e)}")
 
 
 @app.get("/me", response_model=UserOut)
@@ -113,7 +137,10 @@ async def get_me(user: User = Depends(get_current_user)):
     return user
 
 @app.post("/deposit-paid")
-async def mark_deposit_paid(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+async def mark_deposit_paid(
+    user: User = Depends(get_current_user), 
+    session: Session = Depends(get_session)
+):
     user.deposit_paid = True
     session.add(user)
     session.commit()
@@ -132,7 +159,9 @@ async def create_habits(
     return {"message": "Habits saved!"}
 
 @app.get("/habits", response_model=List[HabitOut])
-async def get_habits(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+async def get_habits(
+    user: User = Depends(get_current_user), 
+    session: Session = Depends(get_session)
+):
     habits = session.exec(select(Habit).where(Habit.user_id == user.id)).all()
     return habits
-

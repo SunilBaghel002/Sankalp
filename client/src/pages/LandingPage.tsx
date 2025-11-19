@@ -7,22 +7,28 @@ import { checkAuth } from "../lib/auth";
 
 const LandingPage: React.FC = () => {
   const [step, setStep] = useState(0);
-  const [isChecking, setIsChecking] = useState(true); // ← Fixed name
+  const [isChecking, setIsChecking] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     let mounted = true;
 
-    const tryCheck = async (attempt = 1) => {
+    const tryCheck = async () => {
       if (!mounted) return;
 
-      const loggedIn = await checkAuth();
-      if (loggedIn) {
-        navigate("/pay-deposit", { replace: true });
-      } else if (attempt < 6) {
-        setTimeout(() => tryCheck(attempt + 1), 1000);
-      } else {
-        setIsChecking(false); // ← Now using correct state
+      try {
+        const loggedIn = await checkAuth();
+
+        if (loggedIn && mounted) {
+          navigate("/pay-deposit", { replace: true });
+        } else if (mounted) {
+          setIsChecking(false);
+        }
+      } catch (error) {
+        console.error("Auth check error:", error);
+        if (mounted) {
+          setIsChecking(false);
+        }
       }
     };
 
