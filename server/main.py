@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from typing import List
 from pydantic import BaseModel
+from fastapi import Request
 
 from database import create_db_and_tables, get_session
 from models import User, Habit
@@ -39,31 +40,41 @@ def on_startup():
 #     code: str
 
 @app.post("/auth/google/callback")
-async def google_callback(data: dict, session: Session = Depends(get_session)):
+async def google_callback(
+    request: Request,                    # ← Add Request dependency
+    data: dict,
+    session: Session = Depends(get_session)
+):
     code = data.get("code")
     if not code:
-        raise HTTPException(400, "No code")
+        raise HTTPException(400, "No code provided")
 
-    # Add this: prevent reuse
-    if hasattr(request.state, "code_used"):
-        return JSONResponse({"message": "Already processed"})
+    # Prevent double-use of code
+    if getattr(request.state, "code_used", False):
+        return JSONResponse({"message": "Code already used"})
 
-    token_resp = requests.post("https://oauth2.googleapis.com/token", data={
-        "code": code,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "redirect_uri": "http://localhost:5173/auth/callback",
-        "grant_type": "authorization_code",
-    })
+    token_resp = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": "http://localhost:5173/auth/callback",
+            "grant_type": "authorization_code",
+        },
+    )
+
+    print("Google token response:", token_resp.status_code, token_resp.text)
 
     if token_resp.status_code != 200:
-        print("Google error:", token_resp.json())
-        raise HTTPException(400, "Invalid grant")
+        raise HTTPException(400, f"Google error: {token_resp.text}")
 
-    # Mark as used (simple way)
-    request.state.code_used = True
+    request.state.code_used = True  # Mark as used
 
     id_token = token_resp.json().get("id_token")
+    if not id_token:
+        raise HTTPException(400, "No id_token received")
+
     payload = verify_google_token(id_token)
 
     # Find or create user
@@ -78,15 +89,15 @@ async def google_callback(data: dict, session: Session = Depends(get_session)):
         session.commit()
         session.refresh(user)
 
-    # Create JWT and set cookie
+    # Set JWT cookie
     access_token = create_access_token({"sub": payload["email"]})
 
     response = JSONResponse({"success": true})
     response.set_cookie(
         key="access_token",
-        value=access_token,
+        value=f"Bearer {access_token}",
         httponly=True,
-        secure=False,
+        secure=False,           # True in production
         samesite="lax",
         path="/",
         max_age=30 * 24 * 60 * 60,
