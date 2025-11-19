@@ -1,0 +1,36 @@
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import ProtectedRoute from "./components/ProtectedRoute";
+
+// Pages
+import LandingPage from "./pages/LandingPage";
+import SignupPage from "./pages/SignupPage";
+import PayDepositPage from "./pages/PayDepositPage";
+import OnboardingPage from "./pages/OnboardingPage";
+import DailyPage from "./pages/DailyPage";
+import InsightsPage from "./pages/InsightsPage";
+import StreakPage from "./pages/StreakPage";
+import QuitPage from "./pages/QuitPage";
+import SuccessPage from "./pages/SuccessPage";
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/pay-deposit" element={<PayDepositPage />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route path="/daily" element={<DailyPage />} />
+          <Route path="/insights" element={<InsightsPage />} />
+          <Route path="/streak" element={<StreakPage />} />
+          <Route path="/quit" element={<QuitPage />} />
+          <Route path="/success" element={<SuccessPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
