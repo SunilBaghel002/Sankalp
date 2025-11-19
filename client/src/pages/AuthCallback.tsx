@@ -8,12 +8,13 @@ const AuthCallback: React.FC = () => {
 
   useEffect(() => {
     const code = searchParams.get("code");
-    if (!code) {
+    const error = searchParams.get("error");
+
+    if (error || !code) {
       navigate("/");
       return;
     }
 
-    // Send code to your backend
     fetch("http://127.0.0.1:8000/auth/google/callback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -22,7 +23,7 @@ const AuthCallback: React.FC = () => {
     })
       .then((res) => {
         if (res.ok) {
-          navigate("/pay-deposit");
+          navigate("/pay-deposit", { replace: true });
         } else {
           navigate("/");
         }
@@ -31,8 +32,8 @@ const AuthCallback: React.FC = () => {
   }, [searchParams, navigate]);
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-      <div className="text-white text-xl">Completing login...</div>
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white text-xl">
+      Completing your login...
     </div>
   );
 };

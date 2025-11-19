@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from typing import List
+import os
 
 from database import create_db_and_tables, get_session  # ← no dot
 from models import User, Habit                          # ← no dot
@@ -10,6 +11,7 @@ from schemas import GoogleToken, UserOut, HabitCreate, HabitOut  # ← no dot
 from auth import verify_google_token, create_access_token, get_current_user
 
 app = FastAPI(title="Sankalp Backend")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 # CORS - Allow your frontend
 app.add_middleware(
@@ -81,17 +83,39 @@ async def mark_deposit_paid(user: User = Depends(get_current_user), session: Ses
     return {"message": "Deposit marked as paid"}
 
 @app.post("/auth/google/callback")
-async def google_callback(code: dict, session: Session = Depends(get_session)):
-    token_url = "https://oauth2.googleapis.com/token"
-    data = {
-        "code": code["code"],
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),  # Add this to .env
-        "redirect_uri": "http://localhost:5173/auth/callback",
-        "grant_type": "authorization_code",
-    }
-    token_res = requests.post(token_url, data=data)
-    token_res.raise_for_status()
-    id_token = token_res.json()["id_token"]
+async def google_oauth_callback(data: dict, session: Session = Depends(get_session)):
+    code = data.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="No code provided")
 
+    token_response = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "redirect_uri": "http://localhost:5173/auth/callback",
+            "grant_type": "authorization_code",
+        },
+    )
+
+    if token_response.status_code != 200:
+        raise HTTPException(status_code=400, detail="Failed to get tokens")
+
+    id_token = token_response.json().get("id_token")
     payload = verify_google_token(id_token)
+
+    # ... same user creation logic as before ...
+    # then set cookie exactly like in /auth/google
+    access_token = create_access_token(data={"sub": user.email})
+    
+    response = JSONResponse({"message": "Success"})
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=30*24*60*60,
+        secure=False,
+        samesite="lax"
+    )
+    return response
