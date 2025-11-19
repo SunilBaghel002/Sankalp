@@ -21,17 +21,13 @@ const AuthCallback: React.FC = () => {
     })
       .then((res) => {
         if (res.ok) {
-          // This prevents double execution + gives cookie time to set
-          setTimeout(() => {
-            navigate("/pay-deposit", { replace: true });
-          }, 500);
+          // Give cookie time to be set
+          setTimeout(() => navigate("/pay-deposit", { replace: true }), 300);
         } else {
           navigate("/", { replace: true });
         }
       })
-      .catch(() => {
-        navigate("/", { replace: true });
-      });
+      .catch(() => navigate("/", { replace: true }));
   }, [searchParams, navigate]);
 
   return (
