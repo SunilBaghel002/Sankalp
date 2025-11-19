@@ -37,11 +37,16 @@ def on_startup():
 
 class GoogleCode(BaseModel):
     code: str
+    
+class CodeRequest(BaseModel):
+    code: str
+    
 @app.post("/auth/google/callback")
-async def google_oauth_callback(request: GoogleCode, session: Session = Depends(get_session)):
+async def google_oauth_callback(request: CodeRequest, session: Session = Depends(get_session)):
     code = request.code
+    if not code:
+        raise HTTPException(status_code=400, detail="No code provided")
 
-    # Exchange code for tokens
     token_response = requests.post(
         "https://oauth2.googleapis.com/token",
         data={
@@ -54,13 +59,13 @@ async def google_oauth_callback(request: GoogleCode, session: Session = Depends(
     )
 
     if token_response.status_code != 200:
-        raise HTTPException(status_code=400, detail="Failed to get token from Google")
+        raise HTTPException(status_code=400, detail="Google token exchange failed")
 
-    id_token = token_response.json().get("id_token")
+    tokens = token_response.json()
+    id_token = tokens.get("id_token")
     if not id_token:
         raise HTTPException(status_code=400, detail="No id_token from Google")
 
-    # Verify token
     payload = verify_google_token(id_token)
 
     # Find or create user
@@ -68,7 +73,7 @@ async def google_oauth_callback(request: GoogleCode, session: Session = Depends(
     if not user:
         user = User(
             email=payload["email"],
-            name=payload.get("name", "User"),
+            name=payload.get("name", payload["email"].split("@")[0]),
             google_id=payload["sub"],
         )
         session.add(user)
@@ -83,7 +88,7 @@ async def google_oauth_callback(request: GoogleCode, session: Session = Depends(
         key="access_token",
         value=access_token,
         httponly=True,
-        max_age=30*24*60*60,
+        max_age=30 * 24 * 60 * 60,
         secure=False,
         samesite="lax",
         path="/",
