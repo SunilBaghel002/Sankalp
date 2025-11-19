@@ -7,6 +7,8 @@ from sqlmodel import Session, select
 from typing import List
 from pydantic import BaseModel
 from fastapi import Request
+import logging
+logging.basicConfig(level=logging.INFO)
 
 from database import create_db_and_tables, get_session
 from models import User, Habit
@@ -95,13 +97,14 @@ async def google_callback(
     response = JSONResponse({"success": true})
     response.set_cookie(
         key="access_token",
-        value=f"Bearer {access_token}",
+        value=access_token,
         httponly=True,
         secure=False,           # True in production
         samesite="lax",
         path="/",
         max_age=30 * 24 * 60 * 60,
     )
+    print(f"Setting cookie: access_token = {access_token[:50]}...")
     return response
 
 

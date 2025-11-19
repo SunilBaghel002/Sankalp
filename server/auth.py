@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import os
 import requests
 from sqlmodel import Session, select
+from fastapi import Request, Depends, HTTPException, status
 
 from models import User
 from database import get_session
@@ -37,16 +38,24 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
+def get_current_user(request: Request, session: Session = Depends(get_session)):
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # If you prefixed with Bearer somewhere else, strip it
+    if token.startswith("Bearer "):
+        token = token.split(" ")[1]
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         email: str = payload.get("sub")
         if email is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
+            raise HTTPException(status_code=401)
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401)
+
     user = session.exec(select(User).where(User.email == email)).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=401)
     return user
