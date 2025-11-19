@@ -1,3 +1,5 @@
+# auth.py  ← FULL FIXED VERSION
+
 from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
@@ -6,8 +8,10 @@ from dotenv import load_dotenv
 import os
 import requests
 from sqlmodel import Session, select
-from .models import User
-from .database import get_session
+
+# ← CHANGE THESE LINES — REMOVE THE DOTS!
+from models import User                  # ← was: from .models import User
+from database import get_session        # ← was: from .database import get_session
 
 load_dotenv()
 
@@ -17,6 +21,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
+# ← Rest of the file stays exactly the same
 def verify_google_token(token: str):
     url = f"https://oauth2.googleapis.com/tokeninfo?id_token={token}"
     response = requests.get(url)
