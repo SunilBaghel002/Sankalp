@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../store/useStore";
-import { Target, Clock, Plus, Check } from "lucide-react";
+import { Target, Clock, Check } from "lucide-react";
 
 interface LocalHabit {
   id: number;
@@ -47,25 +47,46 @@ const OnboardingPage: React.FC = () => {
     setSaving(true);
 
     try {
-      // Save habits to backend
+      // ✅ FIXED: Using correct field names that match backend schema
+      const habitsData = valid.map((h) => ({
+        name: h.name,
+        why: h.why, // ✅ Changed from 'description' to 'why'
+        time: h.time, // ✅ Changed from 'target_time' to 'time'
+      }));
+
+      console.log("📤 Sending habits data:", habitsData);
+
       const response = await fetch("http://localhost:8000/habits", {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(
-          valid.map((h) => ({
-            name: h.name,
-            description: h.why,
-            target_time: h.time,
-          }))
-        ),
+        body: JSON.stringify(habitsData),
       });
 
+      // ✅ Better error handling
       if (!response.ok) {
-        throw new Error("Failed to save habits");
+        const errorText = await response.text();
+        console.error("Backend response error:", response.status, errorText);
+
+        // Try to parse error details
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error("Error details:", errorJson);
+          alert(
+            `Failed to save habits: ${errorJson.detail || "Unknown error"}`
+          );
+        } catch {
+          alert(`Failed to save habits: ${errorText}`);
+        }
+
+        setSaving(false);
+        return;
       }
+
+      const data = await response.json();
+      console.log("✅ Habits saved successfully:", data);
 
       // Save to local store
       setHabits(valid as any);
@@ -154,6 +175,7 @@ const OnboardingPage: React.FC = () => {
                     updateHabit(habit.id, "name", e.target.value)
                   }
                   className="flex-1 bg-slate-700 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  maxLength={50}
                 />
               </div>
 
@@ -163,6 +185,7 @@ const OnboardingPage: React.FC = () => {
                 value={habit.why}
                 onChange={(e) => updateHabit(habit.id, "why", e.target.value)}
                 className="w-full bg-slate-700 px-4 py-2 rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                maxLength={100}
               />
 
               <div className="flex items-center gap-2">
@@ -210,6 +233,20 @@ const OnboardingPage: React.FC = () => {
                 : ""
             } to continue`}
         </p>
+
+        {/* Debug info in development */}
+        {import.meta.env.DEV && (
+          <div className="mt-8 p-4 bg-slate-800 rounded-lg text-xs text-slate-400 border border-slate-700">
+            <p className="font-semibold mb-2 text-orange-400">🔧 Debug Info:</p>
+            <p>
+              User: {user?.name} ({user?.email})
+            </p>
+            <p>
+              Valid habits: {localHabits.filter((h) => h.name && h.why).length}
+              /5
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
