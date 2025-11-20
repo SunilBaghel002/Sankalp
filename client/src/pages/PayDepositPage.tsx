@@ -8,12 +8,11 @@ import { DollarSign, Check, X, AlertTriangle, Zap } from "lucide-react";
 
 const PayDepositPage: React.FC = () => {
   const navigate = useNavigate();
-  const { depositPaid, setDepositPaid } = useStore();
+  const { depositPaid, setDepositPaid, setUser } = useStore(); // ✅ Added setUser
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  const [userData, setUserData] = useState<any>(null);
 
-  // ✅ Check authentication and fetch user data
   useEffect(() => {
     const verify = async () => {
       try {
@@ -44,12 +43,15 @@ const PayDepositPage: React.FC = () => {
           return;
         }
 
-        const userData = await response.json();
-        console.log("👤 User data:", userData);
-        setUser(userData);
+        const data = await response.json();
+        console.log("👤 User data:", data);
+
+        // ✅ Store user in Zustand
+        setUser(data);
+        setUserData(data);
 
         // Check if user already paid deposit
-        if (userData.deposit_paid) {
+        if (data.deposit_paid) {
           console.log("💰 Deposit already paid, redirecting to onboarding");
           setDepositPaid(true);
           navigate("/onboarding", { replace: true });
@@ -64,9 +66,8 @@ const PayDepositPage: React.FC = () => {
     };
 
     verify();
-  }, [navigate, setDepositPaid]);
+  }, [navigate, setDepositPaid, setUser]);
 
-  // ✅ Handle payment - just mark as paid and move forward
   const handlePayment = async () => {
     setPaying(true);
 
@@ -92,13 +93,19 @@ const PayDepositPage: React.FC = () => {
       const data = await res.json();
       console.log("✅ Payment marked successful:", data);
 
-      // Update store
+      // ✅ Update store with payment status
       setDepositPaid(true);
+
+      // ✅ Update user data with deposit_paid = true
+      if (userData) {
+        setUser({ ...userData, deposit_paid: true });
+      }
 
       // Show success animation briefly
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Navigate to onboarding
+      console.log("🚀 Navigating to onboarding...");
       navigate("/onboarding", { replace: true });
     } catch (err) {
       console.error("Network error:", err);
@@ -127,16 +134,16 @@ const PayDepositPage: React.FC = () => {
         className="max-w-lg w-full"
       >
         {/* User Welcome */}
-        {user && (
+        {userData && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="text-center mb-6"
           >
             <h2 className="text-2xl font-semibold text-slate-300">
-              Welcome, <span className="text-orange-400">{user.name}</span>!
+              Welcome, <span className="text-orange-400">{userData.name}</span>!
             </h2>
-            <p className="text-slate-400 text-sm">{user.email}</p>
+            <p className="text-slate-400 text-sm">{userData.email}</p>
           </motion.div>
         )}
 
@@ -199,17 +206,6 @@ const PayDepositPage: React.FC = () => {
         <p className="text-center text-slate-400 text-sm mt-6">
           Click to confirm your commitment to the 100-day challenge
         </p>
-
-        {/* Debug Info (Development only) */}
-        {import.meta.env.DEV && (
-          <div className="mt-8 p-4 bg-slate-800 rounded-lg text-xs text-slate-400 border border-slate-700">
-            <p className="font-semibold mb-2 text-orange-400">🔧 Debug Info:</p>
-            <p>User ID: {user?.id}</p>
-            <p>Name: {user?.name}</p>
-            <p>Email: {user?.email}</p>
-            <p>Deposit Paid: {user?.deposit_paid ? "✅ Yes" : "❌ No"}</p>
-          </div>
-        )}
       </motion.div>
     </div>
   );

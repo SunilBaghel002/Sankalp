@@ -1,61 +1,24 @@
+// src/store/useStore.ts
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import type { Habit, User, DailyCheckins } from "../types";
 
-interface SankalpState {
-  user: User | null;
+interface StoreState {
+  user: any | null;
   depositPaid: boolean;
-  habits: Habit[];
-  todayCheckins: DailyCheckins;
-  currentStreak: number;
-  longestStreak: number;
-  totalDays: number;
+  habits: any[];
 
-  setUser: (user: User | null) => void;
+  setUser: (user: any) => void;
   setDepositPaid: (paid: boolean) => void;
-  setHabits: (habits: Habit[]) => void;
-  checkInHabit: (habitId: number) => void;
-  updateStreaks: (current: number, longest: number, total: number) => void;
-  logout: () => void;
+  setHabits: (habits: any[]) => void;
+  reset: () => void;
 }
 
-export const useStore = create<SankalpState>()(
-  persist(
-    (set) => ({
-      user: null,
-      depositPaid: false,
-      habits: [],
-      todayCheckins: {},
-      currentStreak: 0,
-      longestStreak: 0,
-      totalDays: 0,
+export const useStore = create<StoreState>((set) => ({
+  user: null,
+  depositPaid: false,
+  habits: [],
 
-      setUser: (user) => set({ user }),
-      setDepositPaid: (paid) => set({ depositPaid: paid }),
-      setHabits: (habits) => set({ habits }),
-      checkInHabit: (habitId) =>
-        set((state) => ({
-          todayCheckins: { ...state.todayCheckins, [habitId]: true },
-        })),
-      updateStreaks: (current, longest, total) =>
-        set({
-          currentStreak: current,
-          longestStreak: longest,
-          totalDays: total,
-        }),
-      logout: () =>
-        set({
-          user: null,
-          depositPaid: false,
-          habits: [],
-          todayCheckins: {},
-          currentStreak: 0,
-          longestStreak: 0,
-          totalDays: 0,
-        }),
-    }),
-    {
-      name: "sankalp-storage",
-    }
-  )
-);
+  setUser: (user) => set({ user }),
+  setDepositPaid: (paid) => set({ depositPaid: paid }),
+  setHabits: (habits) => set({ habits }),
+  reset: () => set({ user: null, depositPaid: false, habits: [] }),
+}));
