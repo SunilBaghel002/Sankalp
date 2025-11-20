@@ -1,18 +1,36 @@
-from sqlmodel import SQLModel, Field
-from typing import Optional
+# server/models.py
+from typing import Optional, Dict, Any
 from datetime import datetime
+from pydantic import BaseModel, Field
 
-class User(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    email: str = Field(unique=True, index=True)
+class User(BaseModel):
+    id: Optional[int] = None
+    email: str
     name: str
-    google_id: str = Field(unique=True)
+    google_id: str
     deposit_paid: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: Optional[datetime] = None
 
-class Habit(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
+    @classmethod
+    def from_supabase(cls, data: Dict[str, Any]) -> "User":
+        return cls(**data)
+
+class Habit(BaseModel):
+    id: Optional[int] = None
+    user_id: int
     name: str
     why: str
-    time: str  # "08:00"
+    time: str = "08:00"
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def from_supabase(cls, data: Dict[str, Any]) -> "Habit":
+        return cls(**data)
+
+class CheckIn(BaseModel):
+    id: Optional[int] = None
+    user_id: int
+    habit_id: int
+    date: str
+    completed: bool = False
+    created_at: Optional[datetime] = None
