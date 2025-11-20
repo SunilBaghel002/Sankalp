@@ -11,28 +11,36 @@ import {
   Calendar,
   Clock,
   Target,
+  RefreshCw,
 } from "lucide-react";
-
-interface HabitCheckIn {
-  [habitId: string]: boolean;
-}
 
 const DailyPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, habits, checkins = {}, setCheckins } = useStore();
+  const {
+    user,
+    habits,
+    setHabits,
+    checkins,
+    setCheckins,
+    currentStreak,
+    setCurrentStreak,
+  } = useStore();
   const [loading, setLoading] = useState(true);
-  const [todayCheckins, setTodayCheckins] = useState<HabitCheckIn>({});
-  const today = new Date().toDateString();
+  const [saving, setSaving] = useState(false);
+  const [todayCheckins, setTodayCheckins] = useState<{
+    [habitId: number]: boolean;
+  }>({});
+  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
 
-  // ✅ Initialize habits if not loaded
+  // Load habits and checkins from backend
   useEffect(() => {
-    const loadHabits = async () => {
+    const loadData = async () => {
       try {
-        // If habits not in store, fetch from backend
+        // Load habits if not already in store
         if (!habits || habits.length === 0) {
           console.log("📥 Fetching habits from backend...");
 
-          const response = await fetch("http://localhost:8000/habits", {
+          const habitsResponse = await fetch("http://localhost:8000/habits", {
             method: "GET",
             credentials: "include",
             headers: {
@@ -40,63 +48,90 @@ const DailyPage: React.FC = () => {
             },
           });
 
-          if (!response.ok) {
+          if (!habitsResponse.ok) {
             console.error("Failed to fetch habits");
             navigate("/onboarding");
             return;
           }
 
-          const habitsData = await response.json();
+          const habitsData = await habitsResponse.json();
           console.log("✅ Habits loaded:", habitsData);
 
-          // Store habits in Zustand
-          useStore.getState().setHabits(habitsData);
+          if (!habitsData || habitsData.length === 0) {
+            navigate("/onboarding");
+            return;
+          }
+
+          setHabits(habitsData);
+        }
+
+        // Load today's checkins
+        console.log("📥 Fetching today's checkins...");
+        const checkinsResponse = await fetch(
+          `http://localhost:8000/checkins/${today}`,
+          {
+            method: "GET",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (checkinsResponse.ok) {
+          const checkinsData = await checkinsResponse.json();
+          console.log("✅ Checkins loaded:", checkinsData);
+
+          // Convert to map
+          const checkinsMap: { [habitId: number]: boolean } = {};
+          checkinsData.forEach((checkin: any) => {
+            checkinsMap[checkin.habit_id] = checkin.completed;
+          });
+
+          setTodayCheckins(checkinsMap);
+          setCheckins(today, checkinsData);
+        }
+
+        // Load stats
+        const statsResponse = await fetch("http://localhost:8000/stats", {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (statsResponse.ok) {
+          const stats = await statsResponse.json();
+          setCurrentStreak(stats.current_streak);
         }
 
         setLoading(false);
       } catch (error) {
-        console.error("Error loading habits:", error);
-        navigate("/onboarding");
+        console.error("Error loading data:", error);
+        setLoading(false);
       }
     };
 
-    loadHabits();
-  }, [habits, navigate]);
+    loadData();
+  }, [navigate, habits, setHabits, setCheckins, today, setCurrentStreak]);
 
-  // ✅ Load today's checkins
-  useEffect(() => {
-    // Safely check if checkins exists and has today's data
-    if (checkins && typeof checkins === "object" && checkins[today]) {
-      setTodayCheckins(checkins[today]);
-    } else {
-      // Initialize empty checkins for today
-      setTodayCheckins({});
-    }
-  }, [checkins, today]);
+  // Toggle habit completion
+  const toggleHabit = async (habitId: number) => {
+    if (saving) return;
 
-  // ✅ Toggle habit completion
-  const toggleHabit = (habitId: string) => {
-    const newCheckins = {
+    const newValue = !todayCheckins[habitId];
+
+    // Update UI immediately
+    setTodayCheckins({
       ...todayCheckins,
-      [habitId]: !todayCheckins[habitId],
-    };
+      [habitId]: newValue,
+    });
 
-    setTodayCheckins(newCheckins);
+    setSaving(true);
 
-    // Update global store
-    const updatedCheckins = {
-      ...(checkins || {}),
-      [today]: newCheckins,
-    };
-    setCheckins(updatedCheckins);
-
-    // Optional: Save to backend
-    saveCheckinsToBackend(habitId, !todayCheckins[habitId]);
-  };
-
-  // ✅ Save checkin to backend
-  const saveCheckinsToBackend = async (habitId: string, completed: boolean) => {
     try {
+      // Save to backend
       const response = await fetch("http://localhost:8000/checkins", {
         method: "POST",
         credentials: "include",
@@ -106,51 +141,37 @@ const DailyPage: React.FC = () => {
         body: JSON.stringify({
           habit_id: habitId,
           date: today,
-          completed: completed,
+          completed: newValue,
         }),
       });
 
       if (!response.ok) {
         console.error("Failed to save checkin");
+        // Revert on error
+        setTodayCheckins({
+          ...todayCheckins,
+          [habitId]: !newValue,
+        });
+      } else {
+        console.log(`✅ Checkin saved for habit ${habitId}`);
       }
     } catch (error) {
       console.error("Error saving checkin:", error);
+      // Revert on error
+      setTodayCheckins({
+        ...todayCheckins,
+        [habitId]: !newValue,
+      });
+    } finally {
+      setSaving(false);
     }
   };
 
-  // ✅ Calculate progress
-  const completedToday = habits
-    ? habits.filter((habit: any) => todayCheckins[habit.id || habit.name])
-        .length
-    : 0;
-  const totalHabits = habits ? habits.length : 0;
+  // Calculate progress
+  const completedToday = Object.values(todayCheckins).filter(Boolean).length;
+  const totalHabits = habits?.length || 0;
   const progressPercentage =
     totalHabits > 0 ? (completedToday / totalHabits) * 100 : 0;
-
-  // ✅ Calculate streak (simplified version)
-  const calculateStreak = () => {
-    if (!checkins || typeof checkins !== "object") return 0;
-
-    let streak = 0;
-    const dates = Object.keys(checkins).sort().reverse();
-
-    for (const date of dates) {
-      const dayCheckins = checkins[date];
-      if (dayCheckins && typeof dayCheckins === "object") {
-        const completedCount =
-          Object.values(dayCheckins).filter(Boolean).length;
-        if (completedCount === totalHabits) {
-          streak++;
-        } else {
-          break;
-        }
-      }
-    }
-
-    return streak;
-  };
-
-  const currentStreak = calculateStreak();
 
   if (loading) {
     return (
@@ -163,7 +184,6 @@ const DailyPage: React.FC = () => {
     );
   }
 
-  // ✅ Handle no habits case
   if (!habits || habits.length === 0) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
@@ -194,15 +214,21 @@ const DailyPage: React.FC = () => {
           className="mb-8"
         >
           <div className="flex justify-between items-center mb-4">
-            <h1 className="text-3xl font-bold">Daily Check-In</h1>
+            <div>
+              <h1 className="text-3xl font-bold">Daily Check-In</h1>
+              <p className="text-slate-400">
+                Welcome back, {user?.name?.split(" ")[0]}!
+              </p>
+            </div>
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-lg">
                 <Flame className="w-6 h-6 text-orange-500" />
-                <span className="text-xl font-bold">{currentStreak} days</span>
+                <span className="text-xl font-bold">{currentStreak}</span>
+                <span className="text-slate-400">days</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-lg">
                 <Trophy className="w-6 h-6 text-yellow-500" />
-                <span className="text-xl">
+                <span className="text-xl font-bold">
                   {completedToday}/{totalHabits}
                 </span>
               </div>
@@ -240,13 +266,12 @@ const DailyPage: React.FC = () => {
 
         {/* Habits List */}
         <div className="space-y-4">
-          {habits.map((habit: any, index: number) => {
-            const habitId = habit.id || habit.name;
-            const isCompleted = todayCheckins[habitId] || false;
+          {habits.map((habit, index) => {
+            const isCompleted = todayCheckins[habit.id] || false;
 
             return (
               <motion.div
-                key={habitId}
+                key={habit.id}
                 initial={{ x: -50, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 transition={{ delay: index * 0.1 }}
@@ -254,12 +279,12 @@ const DailyPage: React.FC = () => {
                   isCompleted
                     ? "border-green-500 bg-green-900/20"
                     : "border-slate-700 hover:border-orange-500"
-                }`}
-                onClick={() => toggleHabit(habitId)}
+                } ${saving ? "opacity-75 cursor-wait" : ""}`}
+                onClick={() => toggleHabit(habit.id)}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <button className="text-2xl">
+                    <button className="text-2xl" disabled={saving}>
                       {isCompleted ? (
                         <CheckCircle className="w-8 h-8 text-green-500" />
                       ) : (
@@ -287,33 +312,29 @@ const DailyPage: React.FC = () => {
           })}
         </div>
 
+        {/* Saving indicator */}
+        {saving && (
+          <div className="fixed bottom-4 right-4 bg-slate-800 px-4 py-2 rounded-lg flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 animate-spin text-orange-500" />
+            <span className="text-sm">Saving...</span>
+          </div>
+        )}
+
         {/* Navigation Buttons */}
-        <div className="mt-8 flex gap-4">
+        <div className="mt-8 grid grid-cols-2 gap-4">
           <button
             onClick={() => navigate("/insights")}
-            className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-lg font-semibold"
+            className="bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-lg font-semibold"
           >
             View Insights 📊
           </button>
           <button
             onClick={() => navigate("/streak")}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-lg font-semibold"
+            className="bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-lg font-semibold"
           >
             Streak Details 🔥
           </button>
         </div>
-
-        {/* Debug Info (Development only) */}
-        {import.meta.env.DEV && (
-          <div className="mt-8 p-4 bg-slate-800 rounded-lg text-xs text-slate-400 border border-slate-700">
-            <p className="font-semibold mb-2 text-orange-400">🔧 Debug Info:</p>
-            <p>User: {user?.name}</p>
-            <p>Total Habits: {totalHabits}</p>
-            <p>Completed Today: {completedToday}</p>
-            <p>Current Streak: {currentStreak} days</p>
-            <p>Today's Date: {today}</p>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../store/useStore";
-import { Target, Clock, Check } from "lucide-react";
+import { Target, Clock, Check, AlertCircle } from "lucide-react";
 
 interface LocalHabit {
   id: number;
@@ -15,21 +15,49 @@ interface LocalHabit {
 const OnboardingPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, setHabits } = useStore();
-  const [localHabits, setLocalHabits] = useState<LocalHabit[]>([
-    { id: 1, name: "", why: "", time: "08:00" },
-  ]);
+  const [localHabits, setLocalHabits] = useState<LocalHabit[]>([]);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Pre-fill all 5 habit slots
+  // Check if user already has habits
   useEffect(() => {
-    const initialHabits = Array.from({ length: 5 }, (_, i) => ({
-      id: i + 1,
-      name: "",
-      why: "",
-      time: "08:00",
-    }));
-    setLocalHabits(initialHabits);
-  }, []);
+    const checkExistingHabits = async () => {
+      try {
+        const response = await fetch("http://localhost:8000/habits", {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (response.ok) {
+          const existingHabits = await response.json();
+
+          if (existingHabits && existingHabits.length > 0) {
+            console.log("User already has habits, redirecting to daily page");
+            setHabits(existingHabits);
+            navigate("/daily", { replace: true });
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Error checking existing habits:", error);
+      }
+
+      // Initialize empty habit slots
+      const initialHabits = Array.from({ length: 5 }, (_, i) => ({
+        id: i + 1,
+        name: "",
+        why: "",
+        time: "08:00",
+      }));
+      setLocalHabits(initialHabits);
+      setLoading(false);
+    };
+
+    checkExistingHabits();
+  }, [navigate, setHabits]);
 
   const updateHabit = (id: number, field: keyof LocalHabit, value: string) => {
     setLocalHabits(
@@ -47,11 +75,10 @@ const OnboardingPage: React.FC = () => {
     setSaving(true);
 
     try {
-      // ✅ FIXED: Using correct field names that match backend schema
       const habitsData = valid.map((h) => ({
-        name: h.name,
-        why: h.why, // ✅ Changed from 'description' to 'why'
-        time: h.time, // ✅ Changed from 'target_time' to 'time'
+        name: h.name.trim(),
+        why: h.why.trim(),
+        time: h.time,
       }));
 
       console.log("📤 Sending habits data:", habitsData);
@@ -65,15 +92,12 @@ const OnboardingPage: React.FC = () => {
         body: JSON.stringify(habitsData),
       });
 
-      // ✅ Better error handling
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Backend response error:", response.status, errorText);
 
-        // Try to parse error details
         try {
           const errorJson = JSON.parse(errorText);
-          console.error("Error details:", errorJson);
           alert(
             `Failed to save habits: ${errorJson.detail || "Unknown error"}`
           );
@@ -88,17 +112,30 @@ const OnboardingPage: React.FC = () => {
       const data = await response.json();
       console.log("✅ Habits saved successfully:", data);
 
-      // Save to local store
-      setHabits(valid as any);
+      // Store the actual habits with IDs from backend
+      if (data.habits) {
+        setHabits(data.habits);
+      }
 
       // Navigate to daily page
-      navigate("/daily");
+      navigate("/daily", { replace: true });
     } catch (error) {
       console.error("Error saving habits:", error);
       alert("Failed to save habits. Please try again.");
       setSaving(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-white text-lg">Setting up your habits...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-4 py-8">
@@ -113,7 +150,7 @@ const OnboardingPage: React.FC = () => {
           <h1 className="text-3xl font-bold mb-2">
             Welcome {user?.name?.split(" ")[0]}! 👋
           </h1>
-          <p className="text-xl mb-2">Apne 5 Habits Choose Karo</p>
+          <p className="text-xl mb-2">Choose Your 5 Daily Habits</p>
           <p className="text-slate-400">
             These will be your daily commitments for 100 days
           </p>
@@ -215,7 +252,7 @@ const OnboardingPage: React.FC = () => {
           {saving ? (
             <span className="flex items-center justify-center gap-2">
               <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-white"></div>
-              Saving...
+              Saving your habits...
             </span>
           ) : (
             `Start My 100-Day Journey 🚀`
@@ -223,27 +260,16 @@ const OnboardingPage: React.FC = () => {
         </button>
 
         {/* Helper text */}
-        <p className="text-center text-slate-500 text-sm mt-4">
-          {5 - localHabits.filter((h) => h.name && h.why).length > 0 &&
-            `Complete ${
-              5 - localHabits.filter((h) => h.name && h.why).length
-            } more habit${
-              5 - localHabits.filter((h) => h.name && h.why).length > 1
+        {localHabits.filter((h) => h.name && h.why).length < 5 && (
+          <div className="mt-4 p-4 bg-orange-900/20 border border-orange-500 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-orange-500 mt-0.5" />
+            <p className="text-orange-200 text-sm">
+              Complete {5 - localHabits.filter((h) => h.name && h.why).length}{" "}
+              more habit
+              {5 - localHabits.filter((h) => h.name && h.why).length > 1
                 ? "s"
-                : ""
-            } to continue`}
-        </p>
-
-        {/* Debug info in development */}
-        {import.meta.env.DEV && (
-          <div className="mt-8 p-4 bg-slate-800 rounded-lg text-xs text-slate-400 border border-slate-700">
-            <p className="font-semibold mb-2 text-orange-400">🔧 Debug Info:</p>
-            <p>
-              User: {user?.name} ({user?.email})
-            </p>
-            <p>
-              Valid habits: {localHabits.filter((h) => h.name && h.why).length}
-              /5
+                : ""}{" "}
+              to continue
             </p>
           </div>
         )}
