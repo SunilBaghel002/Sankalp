@@ -1,38 +1,86 @@
+// src/context/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
 import { useStore } from "../store/useStore";
-import type { User } from "../types";
 
 interface AuthContextType {
-  loading: boolean;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  checkAuth: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ loading: true });
+const AuthContext = createContext<AuthContextType>({
+  isLoading: true,
+  isAuthenticated: false,
+  checkAuth: async () => {},
+});
+
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { setUser } = useStore();
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { setUser, setHabits } = useStore();
+
+  const checkAuth = async () => {
+    try {
+      setIsLoading(true);
+
+      // Check if user is authenticated
+      const response = await fetch("http://localhost:8000/me", {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        console.log("✅ User authenticated:", userData);
+
+        // Store user in Zustand
+        setUser(userData);
+        setIsAuthenticated(true);
+
+        // Also fetch habits if user has them
+        try {
+          const habitsResponse = await fetch("http://localhost:8000/habits", {
+            method: "GET",
+            credentials: "include",
+          });
+
+          if (habitsResponse.ok) {
+            const habitsData = await habitsResponse.json();
+            if (habitsData && habitsData.length > 0) {
+              setHabits(habitsData);
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching habits:", error);
+        }
+      } else {
+        console.log("❌ Not authenticated");
+        setIsAuthenticated(false);
+        setUser(null);
+      }
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      setIsAuthenticated(false);
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [setUser]);
+    checkAuth();
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ loading }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ isLoading, isAuthenticated, checkAuth }}>
+      {children}
+    </AuthContext.Provider>
   );
 };
-
-export const useAuth = () => useContext(AuthContext);
