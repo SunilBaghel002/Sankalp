@@ -1,3 +1,4 @@
+// src/App.tsx
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -17,11 +18,13 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="/pay-deposit" element={<PayDepositPage />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/pay-deposit" element={<PayDepositPage />} />
 
+        {/* Protected Routes */}
         <Route element={<ProtectedRoute />}>
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/daily" element={<DailyPage />} />

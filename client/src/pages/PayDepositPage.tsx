@@ -29,7 +29,7 @@ const PayDepositPage: React.FC = () => {
 
         console.log("✅ User authenticated, fetching user data...");
 
-        // ✅ Fetch user data from backend
+        // Fetch user data from backend
         const response = await fetch("http://localhost:8000/me", {
           method: "GET",
           credentials: "include",
@@ -48,7 +48,7 @@ const PayDepositPage: React.FC = () => {
         console.log("👤 User data:", userData);
         setUser(userData);
 
-        // ✅ Check if user already paid deposit
+        // Check if user already paid deposit
         if (userData.deposit_paid) {
           console.log("💰 Deposit already paid, redirecting to onboarding");
           setDepositPaid(true);
@@ -66,17 +66,16 @@ const PayDepositPage: React.FC = () => {
     verify();
   }, [navigate, setDepositPaid]);
 
-  // ✅ Handle payment (for now, just marks as paid - integrate Razorpay later)
+  // ✅ Handle payment - just mark as paid and move forward
   const handlePayment = async () => {
     setPaying(true);
 
     try {
-      console.log("💳 Processing payment...");
+      console.log("💳 Marking deposit as paid...");
 
-      // ✅ Changed to localhost
       const res = await fetch("http://localhost:8000/deposit-paid", {
         method: "POST",
-        credentials: "include", // ✅ Send cookies
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -85,19 +84,19 @@ const PayDepositPage: React.FC = () => {
       if (!res.ok) {
         const errorText = await res.text();
         console.error("Payment API error:", errorText);
-        alert("Payment failed. Please try again.");
+        alert("Failed to mark payment. Please try again.");
         setPaying(false);
         return;
       }
 
       const data = await res.json();
-      console.log("✅ Payment successful:", data);
+      console.log("✅ Payment marked successful:", data);
 
       // Update store
       setDepositPaid(true);
 
       // Show success animation briefly
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Navigate to onboarding
       navigate("/onboarding", { replace: true });
@@ -106,78 +105,6 @@ const PayDepositPage: React.FC = () => {
       alert("Network error. Please check your backend is running.");
       setPaying(false);
     }
-  };
-
-  // ✅ Optional: Integrate Razorpay
-  const handleRazorpayPayment = () => {
-    setPaying(true);
-
-    // Load Razorpay script if not already loaded
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.async = true;
-    script.onload = () => {
-      const options = {
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID, // Your Razorpay Key ID
-        amount: 50000, // ₹500 in paise
-        currency: "INR",
-        name: "Sankalp",
-        description: "100-Day Habit Challenge Deposit",
-        image: "/logo.png", // Your logo
-        handler: async function (response: any) {
-          console.log("Razorpay payment success:", response);
-
-          // Verify payment on backend
-          try {
-            const res = await fetch("http://localhost:8000/deposit-paid", {
-              method: "POST",
-              credentials: "include",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                razorpay_payment_id: response.razorpay_payment_id,
-              }),
-            });
-
-            if (res.ok) {
-              setDepositPaid(true);
-              navigate("/onboarding", { replace: true });
-            } else {
-              alert("Payment verification failed");
-              setPaying(false);
-            }
-          } catch (err) {
-            console.error("Verification error:", err);
-            alert("Payment verification failed");
-            setPaying(false);
-          }
-        },
-        prefill: {
-          name: user?.name || "",
-          email: user?.email || "",
-        },
-        theme: {
-          color: "#f97316", // Orange color
-        },
-        modal: {
-          ondismiss: function () {
-            console.log("Payment cancelled");
-            setPaying(false);
-          },
-        },
-      };
-
-      const razorpay = new (window as any).Razorpay(options);
-      razorpay.open();
-    };
-
-    script.onerror = () => {
-      alert("Failed to load Razorpay. Please check your internet connection.");
-      setPaying(false);
-    };
-
-    document.body.appendChild(script);
   };
 
   if (loading) {
@@ -251,35 +178,36 @@ const PayDepositPage: React.FC = () => {
 
         {/* Payment Button */}
         <button
-          onClick={handlePayment} // ✅ Change to handleRazorpayPayment when ready
+          onClick={handlePayment}
           disabled={paying}
           className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-700 text-white py-6 rounded-2xl text-2xl font-bold flex items-center justify-center gap-3 shadow-2xl transition-all transform hover:scale-105 disabled:scale-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {paying ? (
             <>
               <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-white"></div>
-              Processing Payment...
+              Processing...
             </>
           ) : (
             <>
-              Pay ₹500 & Burn the Boats
+              Commit ₹500 & Start Challenge
               <span className="text-3xl">🔥</span>
             </>
           )}
         </button>
 
-        {/* Footer */}
-        <p className="text-center text-slate-500 text-sm mt-6">
-          Secured by Razorpay • 100% refundable on success
+        {/* Footer Note */}
+        <p className="text-center text-slate-400 text-sm mt-6">
+          Click to confirm your commitment to the 100-day challenge
         </p>
 
-        {/* Debug Info (remove in production) */}
+        {/* Debug Info (Development only) */}
         {import.meta.env.DEV && (
-          <div className="mt-8 p-4 bg-slate-800 rounded-lg text-xs text-slate-400">
-            <p className="font-semibold mb-2">Debug Info:</p>
+          <div className="mt-8 p-4 bg-slate-800 rounded-lg text-xs text-slate-400 border border-slate-700">
+            <p className="font-semibold mb-2 text-orange-400">🔧 Debug Info:</p>
             <p>User ID: {user?.id}</p>
+            <p>Name: {user?.name}</p>
             <p>Email: {user?.email}</p>
-            <p>Deposit Paid: {user?.deposit_paid ? "Yes" : "No"}</p>
+            <p>Deposit Paid: {user?.deposit_paid ? "✅ Yes" : "❌ No"}</p>
           </div>
         )}
       </motion.div>
