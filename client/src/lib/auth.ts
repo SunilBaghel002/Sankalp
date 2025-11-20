@@ -1,11 +1,13 @@
 // frontend/src/lib/auth.ts
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+// ✅ Use localhost (not 127.0.0.1)
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export async function checkAuth(): Promise<boolean> {
   try {
     const response = await fetch(`${API_URL}/me`, {
       method: "GET",
-      credentials: "include", // ✅ Important: Send cookies
+      credentials: "include", // ✅ Critical: Send cookies
       headers: {
         "Content-Type": "application/json",
       },
@@ -13,10 +15,11 @@ export async function checkAuth(): Promise<boolean> {
 
     if (response.ok) {
       const userData = await response.json();
-      console.log("User authenticated:", userData);
+      console.log("✅ User authenticated:", userData);
       return true;
     }
 
+    console.log("❌ Not authenticated");
     return false;
   } catch (error) {
     console.error("Auth check failed:", error);

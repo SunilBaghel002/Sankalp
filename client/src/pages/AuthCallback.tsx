@@ -5,25 +5,15 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 const AuthCallback = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const hasRun = useRef(false); // ✅ Prevent double execution
+  const hasRun = useRef(false);
 
   useEffect(() => {
-    // ✅ Prevent React StrictMode from running this twice
     if (hasRun.current) return;
     hasRun.current = true;
 
     const code = searchParams.get("code");
-    const error = searchParams.get("error");
-
-    if (error) {
-      console.error("Google OAuth error:", error);
-      alert("Login cancelled or failed");
-      navigate("/");
-      return;
-    }
 
     if (!code) {
-      console.error("No code in callback");
       navigate("/");
       return;
     }
@@ -32,14 +22,15 @@ const AuthCallback = () => {
       try {
         console.log("Sending code to backend:", code.substring(0, 20) + "...");
 
+        // ✅ Changed to localhost (not 127.0.0.1)
         const response = await fetch(
-          "http://127.0.0.1:8000/auth/google/callback",
+          "http://localhost:8000/auth/google/callback",
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
-            credentials: "include", // Important for cookies
+            credentials: "include", // ✅ Important
             body: JSON.stringify({ code }),
           }
         );
@@ -55,8 +46,11 @@ const AuthCallback = () => {
         const data = await response.json();
         console.log("Auth success:", data);
 
+        // ✅ Small delay to ensure cookie is set
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
         // Navigate to next step
-        navigate("/pay-deposit", { replace: true }); // ✅ Added replace: true
+        navigate("/pay-deposit", { replace: true });
       } catch (error) {
         console.error("Auth callback error:", error);
         alert("Login failed. Please try again.");
@@ -65,7 +59,7 @@ const AuthCallback = () => {
     };
 
     sendCodeToBackend();
-  }, []); // ✅ Empty deps - searchParams not needed since we read it once
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">

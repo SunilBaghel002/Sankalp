@@ -23,12 +23,12 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
-# CORS
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5173",  # Keep this as backup
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -135,12 +135,15 @@ async def google_callback(
             }
         })
         
+        
+
         response.set_cookie(
             key="access_token",
             value=access_token,
             httponly=True,
-            secure=False,  # Set True in production
-            samesite="lax",
+            secure=False,  # ✅ False for localhost (True in production)
+            samesite="lax",  # ✅ Important for cross-origin
+            domain="localhost",  # ✅ Explicitly set domain
             path="/",
             max_age=30 * 24 * 60 * 60,
         )
