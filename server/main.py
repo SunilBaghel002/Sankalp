@@ -7,7 +7,7 @@ from pydantic import BaseModel
 import os
 import requests
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 logging.basicConfig(level=logging.INFO)
 
@@ -286,3 +286,76 @@ async def get_user_stats(user: User = Depends(get_current_user)):
     except Exception as e:
         logging.error(f"Error fetching stats: {str(e)}")
         raise HTTPException(500, "Failed to fetch stats")
+    
+@app.get("/stats")
+async def get_user_stats(user: User = Depends(get_current_user)):
+    try:
+        # Get all checkins for the user
+        checkins_response = supabase.table('checkins').select('*').eq('user_id', user.id).execute()
+        habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        
+        checkins = checkins_response.data if checkins_response.data else []
+        habits = habits_response.data if habits_response.data else []
+        
+        total_habits = len(habits)
+        
+        if total_habits == 0:
+            return {
+                "total_habits": 0,
+                "total_checkins": 0,
+                "current_streak": 0,
+                "deposit_paid": user.deposit_paid
+            }
+        
+        # Calculate streak
+        today = date.today()
+        streak = 0
+        
+        # Group checkins by date
+        checkins_by_date = {}
+        for checkin in checkins:
+            checkin_date = checkin['date']
+            if checkin_date not in checkins_by_date:
+                checkins_by_date[checkin_date] = []
+            if checkin['completed']:
+                checkins_by_date[checkin_date].append(checkin['habit_id'])
+        
+        # Calculate current streak (counting backwards from today)
+        current_date = today
+        while True:
+            date_str = str(current_date)
+            if date_str in checkins_by_date:
+                # Check if all habits were completed on this date
+                completed_habits = len(set(checkins_by_date[date_str]))
+                if completed_habits == total_habits:
+                    streak += 1
+                    current_date = current_date - timedelta(days=1)
+                else:
+                    break
+            else:
+                # No checkins for this date, streak broken
+                break
+        
+        # Count total completed days
+        total_completed_days = 0
+        for date_str, habit_ids in checkins_by_date.items():
+            if len(set(habit_ids)) == total_habits:
+                total_completed_days += 1
+        
+        return {
+            "total_habits": total_habits,
+            "total_checkins": len(checkins),
+            "current_streak": streak,
+            "total_completed_days": total_completed_days,
+            "deposit_paid": user.deposit_paid
+        }
+    except Exception as e:
+        logging.error(f"Error fetching stats: {str(e)}")
+        # Return default values instead of error
+        return {
+            "total_habits": 0,
+            "total_checkins": 0, 
+            "current_streak": 0,
+            "total_completed_days": 0,
+            "deposit_paid": False
+        }

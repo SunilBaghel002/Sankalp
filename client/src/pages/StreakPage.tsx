@@ -40,23 +40,7 @@ const StreakPage: React.FC = () => {
     try {
       setLoading(true);
 
-      // Fetch user data to get start date
-      const userResponse = await fetch("http://localhost:8000/me", {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (!userResponse.ok) {
-        console.error("Failed to fetch user data");
-        setLoading(false);
-        return;
-      }
-
-      const userData = await userResponse.json();
-      const userStartDate = new Date(userData.created_at);
-      setStartDate(userStartDate);
-
-      // Fetch habits
+      // Get habits first
       const habitsResponse = await fetch("http://localhost:8000/habits", {
         method: "GET",
         credentials: "include",
@@ -71,28 +55,27 @@ const StreakPage: React.FC = () => {
       const habitsData = await habitsResponse.json();
       const totalHabits = habitsData.length;
 
-      // Calculate all 100 days
+      // ✅ Use today as start date if user doesn't have created_at
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const allDays: DayStatus[] = [];
-      let tempCurrentStreak = 0;
-      let tempLongestStreak = 0;
-      let tempTotalCompleted = 0;
-      let streakBroken = false;
+      // ✅ For now, use deposit paid date or today as start
+      // You can also track when the user first created habits
+      const userStartDate = user?.created_at
+        ? new Date(user.created_at)
+        : today;
 
-      // Generate 100 days starting from user's start date
-      for (let i = 0; i < 100; i++) {
-        const checkDate = new Date(userStartDate);
-        checkDate.setDate(userStartDate.getDate() + i);
-        checkDate.setHours(0, 0, 0, 0);
+      // If created_at is invalid, use today minus days that have passed
+      if (isNaN(userStartDate.getTime())) {
+        // Find the earliest checkin date as start date
+        let earliestDate = today;
 
-        const dateStr = checkDate.toISOString().split("T")[0];
-        const isToday = checkDate.getTime() === today.getTime();
-        const isFuture = checkDate > today;
+        // Try to find the earliest checkin
+        for (let i = 99; i >= 0; i--) {
+          const checkDate = new Date();
+          checkDate.setDate(today.getDate() - i);
+          const dateStr = checkDate.toISOString().split("T")[0];
 
-        if (!isFuture) {
-          // Fetch checkins for this date
           const checkinsResponse = await fetch(
             `http://localhost:8000/checkins/${dateStr}`,
             {
@@ -103,36 +86,94 @@ const StreakPage: React.FC = () => {
 
           if (checkinsResponse.ok) {
             const checkinsData = await checkinsResponse.json();
-            const completedHabits = checkinsData.filter(
-              (c: any) => c.completed
-            ).length;
-            const isCompleted =
-              completedHabits === totalHabits && totalHabits > 0;
-
-            allDays.push({
-              date: dateStr,
-              dayNumber: i + 1,
-              completed: isCompleted,
-              isToday,
-              isFuture: false,
-              habitsCompleted: completedHabits,
-              totalHabits,
-            });
-
-            if (isCompleted) {
-              tempTotalCompleted++;
-              if (!streakBroken) {
-                tempCurrentStreak++;
-              }
-              tempLongestStreak = Math.max(
-                tempLongestStreak,
-                tempCurrentStreak
-              );
-            } else if (!isToday) {
-              streakBroken = true;
-              tempCurrentStreak = 0;
+            if (checkinsData && checkinsData.length > 0) {
+              earliestDate = checkDate;
+              break;
             }
-          } else {
+          }
+        }
+
+        setStartDate(earliestDate);
+      } else {
+        setStartDate(userStartDate);
+      }
+
+      // Calculate all 100 days
+      const allDays: DayStatus[] = [];
+      let tempCurrentStreak = 0;
+      let tempLongestStreak = 0;
+      let currentStreakCount = 0;
+      let tempTotalCompleted = 0;
+      let streakBroken = false;
+
+      // Generate 100 days starting from today (or you can adjust the logic)
+      const challengeStartDate = startDate || today;
+
+      for (let i = 0; i < 100; i++) {
+        const checkDate = new Date(challengeStartDate);
+        checkDate.setDate(challengeStartDate.getDate() + i);
+        checkDate.setHours(0, 0, 0, 0);
+
+        const dateStr = checkDate.toISOString().split("T")[0];
+        const isToday = checkDate.toDateString() === today.toDateString();
+        const isFuture = checkDate > today;
+
+        if (!isFuture) {
+          // Fetch checkins for this date
+          try {
+            const checkinsResponse = await fetch(
+              `http://localhost:8000/checkins/${dateStr}`,
+              {
+                method: "GET",
+                credentials: "include",
+              }
+            );
+
+            if (checkinsResponse.ok) {
+              const checkinsData = await checkinsResponse.json();
+              const completedHabits = checkinsData.filter(
+                (c: any) => c.completed
+              ).length;
+              const isCompleted =
+                completedHabits === totalHabits && totalHabits > 0;
+
+              allDays.push({
+                date: dateStr,
+                dayNumber: i + 1,
+                completed: isCompleted,
+                isToday,
+                isFuture: false,
+                habitsCompleted: completedHabits,
+                totalHabits,
+              });
+
+              if (isCompleted) {
+                tempTotalCompleted++;
+                currentStreakCount++;
+                tempLongestStreak = Math.max(
+                  tempLongestStreak,
+                  currentStreakCount
+                );
+              } else if (!isToday) {
+                currentStreakCount = 0;
+              }
+            } else {
+              allDays.push({
+                date: dateStr,
+                dayNumber: i + 1,
+                completed: false,
+                isToday,
+                isFuture: false,
+                habitsCompleted: 0,
+                totalHabits,
+              });
+
+              if (!isToday) {
+                currentStreakCount = 0;
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching checkins for ${dateStr}:`, error);
             allDays.push({
               date: dateStr,
               dayNumber: i + 1,
@@ -142,11 +183,6 @@ const StreakPage: React.FC = () => {
               habitsCompleted: 0,
               totalHabits,
             });
-
-            if (!isToday) {
-              streakBroken = true;
-              tempCurrentStreak = 0;
-            }
           }
         } else {
           allDays.push({
@@ -161,20 +197,34 @@ const StreakPage: React.FC = () => {
         }
       }
 
-      // Calculate current streak from today backwards
-      let actualCurrentStreak = 0;
-      for (let i = allDays.length - 1; i >= 0; i--) {
-        if (allDays[i].isFuture) continue;
-        if (allDays[i].isToday && !allDays[i].completed) break;
-        if (allDays[i].completed) {
-          actualCurrentStreak++;
+      // Get current streak from backend
+      try {
+        const statsResponse = await fetch("http://localhost:8000/stats", {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (statsResponse.ok) {
+          const stats = await statsResponse.json();
+          setCurrentStreak(stats.current_streak || 0);
         } else {
-          break;
+          // Calculate current streak from the days we have
+          let streak = 0;
+          for (let i = allDays.length - 1; i >= 0; i--) {
+            if (allDays[i].isFuture) continue;
+            if (allDays[i].completed) {
+              streak++;
+            } else if (!allDays[i].isToday) {
+              break;
+            }
+          }
+          setCurrentStreak(streak);
         }
+      } catch (error) {
+        console.error("Error fetching stats:", error);
       }
 
       setDayStatuses(allDays);
-      setCurrentStreak(actualCurrentStreak);
       setLongestStreak(tempLongestStreak);
       setTotalCompletedDays(tempTotalCompleted);
       setLoading(false);
@@ -290,12 +340,14 @@ const StreakPage: React.FC = () => {
             <h2 className="text-lg font-semibold">
               100-Day Challenge Calendar
             </h2>
-            <div className="flex items-center gap-2 text-xs">
-              <Info className="w-4 h-4 text-slate-400" />
-              <span className="text-slate-400">
-                Started: {startDate?.toLocaleDateString("en-IN")}
-              </span>
-            </div>
+            {startDate && (
+              <div className="flex items-center gap-2 text-xs">
+                <Info className="w-4 h-4 text-slate-400" />
+                <span className="text-slate-400">
+                  Started: {new Date().toLocaleDateString("en-IN")}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-10 gap-2">
@@ -308,7 +360,7 @@ const StreakPage: React.FC = () => {
                 className={`aspect-square rounded-lg flex flex-col items-center justify-center text-xs font-bold border-2 relative ${getDayColor(
                   status
                 )}`}
-                title={`Day ${status.dayNumber}: ${status.date} - ${
+                title={`Day ${status.dayNumber}: ${
                   status.isFuture
                     ? "Future"
                     : status.completed
