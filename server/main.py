@@ -8,6 +8,8 @@ import os
 import requests
 import logging
 from datetime import datetime, date, timedelta
+from passlib.context import CryptContext
+from email_service import generate_otp, send_otp_email, store_otp, verify_otp
 
 logging.basicConfig(level=logging.INFO)
 
@@ -17,6 +19,7 @@ from schemas import UserOut, HabitCreate, HabitOut, CheckInCreate
 from auth import verify_google_token, create_access_token, get_current_user
 
 app = FastAPI(title="Sankalp - Unbreakable Habits")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Environment
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
@@ -126,7 +129,7 @@ async def google_callback(request_body: GoogleCallbackRequest):
             key="access_token",
             value=access_token,
             httponly=True,
-            secure=False,  # True in production
+            secure=False,
             samesite="lax",
             domain="localhost",
             path="/",
@@ -258,39 +261,6 @@ async def get_checkins(date: str, user: User = Depends(get_current_user)):
 async def get_user_stats(user: User = Depends(get_current_user)):
     try:
         # Get all checkins for the user
-        checkins = supabase.table('checkins').select('*').eq('user_id', user.id).execute()
-        habits = supabase.table('habits').select('*').eq('user_id', user.id).execute()
-        
-        total_habits = len(habits.data) if habits.data else 0
-        total_checkins = len(checkins.data) if checkins.data else 0
-        
-        # Calculate streak
-        if checkins.data:
-            dates = set([c['date'] for c in checkins.data])
-            today = date.today()
-            streak = 0
-            current_date = today
-            
-            while str(current_date) in dates:
-                streak += 1
-                current_date = current_date - timedelta(days=1)
-        else:
-            streak = 0
-        
-        return {
-            "total_habits": total_habits,
-            "total_checkins": total_checkins,
-            "current_streak": streak,
-            "deposit_paid": user.deposit_paid
-        }
-    except Exception as e:
-        logging.error(f"Error fetching stats: {str(e)}")
-        raise HTTPException(500, "Failed to fetch stats")
-    
-@app.get("/stats")
-async def get_user_stats(user: User = Depends(get_current_user)):
-    try:
-        # Get all checkins for the user
         checkins_response = supabase.table('checkins').select('*').eq('user_id', user.id).execute()
         habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
         
@@ -359,3 +329,185 @@ async def get_user_stats(user: User = Depends(get_current_user)):
             "total_completed_days": 0,
             "deposit_paid": False
         }
+
+
+# ==================== EMAIL AUTH ENDPOINTS ====================
+
+@app.post("/auth/email/signup")
+async def email_signup(request: dict):  # ✅ REMOVED: session: Session = Depends(get_session)
+    name = request.get("name")
+    email = request.get("email")
+    password = request.get("password")
+
+    if not all([name, email, password]):
+        raise HTTPException(400, "Name, email, and password are required")
+
+    # Check if user already exists
+    existing_user = supabase.table('users').select('*').eq('email', email).execute()
+    if existing_user.data:
+        raise HTTPException(400, "Email already registered")
+
+    # Hash password
+    password_hash = pwd_context.hash(password)
+
+    # Generate and send OTP
+    otp = generate_otp()
+    success = send_otp_email(email, otp, name)
+
+    if not success:
+        raise HTTPException(500, "Failed to send verification email")
+
+    # Store OTP
+    store_otp(email, otp)
+
+    # Create user with hashed password (unverified)
+    new_user = {
+        "email": email,
+        "name": name,
+        "google_id": f"email_{email}",  # Unique identifier for email users
+        "deposit_paid": False,
+        "password_hash": password_hash,
+        # Note: You'll need to add password_hash column to your Supabase users table
+    }
+
+    # Insert user
+    try:
+        response = supabase.table('users').insert(new_user).execute()
+        logging.info(f"✅ User {email} registered, OTP sent")
+    except Exception as e:
+        logging.error(f"Failed to create user: {str(e)}")
+        raise HTTPException(500, "Failed to create user")
+
+    return {"message": "OTP sent to your email", "email": email}
+
+
+@app.post("/auth/email/login")
+async def email_login(request: dict):
+    email = request.get("email")
+    password = request.get("password")
+
+    if not all([email, password]):
+        raise HTTPException(400, "Email and password are required")
+
+    # Find user
+    user_response = supabase.table('users').select('*').eq('email', email).execute()
+
+    if not user_response.data:
+        raise HTTPException(401, "Invalid credentials")
+
+    user = user_response.data[0]
+
+    # TODO: Verify password (you need to store password_hash in DB)
+    # Add password_hash column to your Supabase users table
+    # if not pwd_context.verify(password, user.get('password_hash')):
+    #     raise HTTPException(401, "Invalid credentials")
+    
+    if 'password_hash' not in user or not user['password_hash']:
+        raise HTTPException(401, "This account uses Google login")
+    
+    if not pwd_context.verify(password, user['password_hash']):
+        raise HTTPException(401, "Invalid credentials")
+
+    # For now, skip password verification (INSECURE - FIX THIS!)
+    logging.warning("⚠️ Password verification skipped - add password_hash to DB!")
+
+    # Create JWT
+    access_token = create_access_token({"sub": email, "user_id": user['id']})
+
+    # Return response with cookie
+    response = JSONResponse({
+        "success": True,
+        "user": {
+            "id": user['id'],
+            "email": user['email'],
+            "name": user['name'],
+        }
+    })
+
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        domain="localhost",
+        path="/",
+        max_age=30 * 24 * 60 * 60,
+    )
+
+    logging.info(f"✅ User {email} logged in")
+    return response
+
+
+@app.post("/auth/email/verify-otp")
+async def verify_otp_endpoint(request: dict):
+    email = request.get("email")
+    otp = request.get("otp")
+
+    if not all([email, otp]):
+        raise HTTPException(400, "Email and OTP are required")
+
+    # Verify OTP
+    if not verify_otp(email, otp):
+        raise HTTPException(400, "Invalid or expired OTP")
+
+    # Update user as verified (add email_verified field to your DB if needed)
+    # supabase.table('users').update({"email_verified": True}).eq('email', email).execute()
+
+    # Create JWT
+    user_response = supabase.table('users').select('*').eq('email', email).execute()
+    
+    if not user_response.data:
+        raise HTTPException(404, "User not found")
+    
+    user = user_response.data[0]
+
+    access_token = create_access_token({"sub": email, "user_id": user['id']})
+
+    response = JSONResponse({
+        "success": True,
+        "message": "Email verified successfully",
+        "user": user
+    })
+
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        domain="localhost",
+        path="/",
+        max_age=30 * 24 * 60 * 60,
+    )
+
+    logging.info(f"✅ Email {email} verified")
+    return response
+
+
+@app.post("/auth/email/resend-otp")
+async def resend_otp(request: dict):
+    email = request.get("email")
+
+    if not email:
+        raise HTTPException(400, "Email is required")
+
+    # Get user
+    user_response = supabase.table('users').select('*').eq('email', email).execute()
+
+    if not user_response.data:
+        raise HTTPException(404, "User not found")
+
+    user = user_response.data[0]
+
+    # Generate and send new OTP
+    otp = generate_otp()
+    success = send_otp_email(email, otp, user['name'])
+
+    if not success:
+        raise HTTPException(500, "Failed to send OTP")
+
+    store_otp(email, otp)
+
+    logging.info(f"✅ OTP resent to {email}")
+    return {"message": "OTP resent successfully"}
