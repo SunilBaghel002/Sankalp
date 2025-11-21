@@ -12,11 +12,20 @@ import {
   Brain,
   Wallet,
   CheckCircle2,
+  Menu,
+  X,
+  Mail,
+  Twitter,
+  Instagram,
+  Github,
+  MessageCircle,
+  BookOpen,
 } from "lucide-react";
 import { checkAuth } from "../lib/auth";
 
 const LandingPage: React.FC = () => {
   const [isChecking, setIsChecking] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -67,21 +76,108 @@ const LandingPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white overflow-hidden font-sans">
-      {/* Navbar */}
-      <nav className="flex justify-between items-center p-6 max-w-7xl mx-auto">
-        <div className="flex items-center gap-2 font-bold text-2xl tracking-tighter">
-          <Flame className="text-orange-500 fill-orange-500" />
-          <span>Sankalp</span>
+      {/* Enhanced Navbar */}
+      <nav className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-md border-b border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            {/* Logo */}
+            <div className="flex items-center">
+              <button
+                onClick={() => navigate("/")}
+                className="flex items-center gap-2 font-bold text-2xl tracking-tighter hover:text-orange-500 transition-colors"
+              >
+                <Flame className="text-orange-500 fill-orange-500" />
+                <span>Sankalp</span>
+              </button>
+            </div>
+
+            {/* Desktop Navigation */}
+            <div className="hidden md:flex items-center space-x-8">
+              <button
+                onClick={() => navigate("/rules")}
+                className="text-slate-300 hover:text-orange-500 transition-colors text-sm font-medium"
+              >
+                Rules
+              </button>
+              <button
+                onClick={() => navigate("/query")}
+                className="text-slate-300 hover:text-orange-500 transition-colors text-sm font-medium flex items-center gap-2"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Support
+              </button>
+              <button
+                onClick={() => navigate("/leaderboard")}
+                className="text-slate-300 hover:text-orange-500 transition-colors text-sm font-medium"
+              >
+                Leaderboard
+              </button>
+              <div className="h-6 w-px bg-slate-700"></div>
+              <button
+                onClick={() => navigate("/signup")}
+                className="bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-lg text-sm font-semibold transition-all transform hover:scale-105"
+              >
+                Get Started
+              </button>
+            </div>
+
+            {/* Mobile menu button */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 rounded-lg hover:bg-slate-800"
+            >
+              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
+
+          {/* Mobile Navigation */}
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="md:hidden border-t border-slate-800"
+            >
+              <div className="px-2 pt-2 pb-3 space-y-1">
+                <button
+                  onClick={() => {
+                    navigate("/rules");
+                    setMobileMenuOpen(false);
+                  }}
+                  className="block px-3 py-2 text-base font-medium text-slate-300 hover:text-orange-500 hover:bg-slate-900 rounded-lg w-full text-left"
+                >
+                  Rules
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/query");
+                    setMobileMenuOpen(false);
+                  }}
+                  className="block px-3 py-2 text-base font-medium text-slate-300 hover:text-orange-500 hover:bg-slate-900 rounded-lg w-full text-left"
+                >
+                  Support
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/leaderboard");
+                    setMobileMenuOpen(false);
+                  }}
+                  className="block px-3 py-2 text-base font-medium text-slate-300 hover:text-orange-500 hover:bg-slate-900 rounded-lg w-full text-left"
+                >
+                  Leaderboard
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/signup");
+                    setMobileMenuOpen(false);
+                  }}
+                  className="block px-3 py-2 text-base font-medium bg-orange-500 text-white hover:bg-orange-600 rounded-lg w-full"
+                >
+                  Get Started
+                </button>
+              </div>
+            </motion.div>
+          )}
         </div>
-        <button onClick={() => navigate("/rules")} className="text-slate-400 underline hover:text-orange-500">
-          Read the full Rules of Engagement
-        </button>
-        <button
-          onClick={() => navigate("/signup")}
-          className="text-sm font-semibold hover:text-orange-500 transition-colors"
-        >
-          Log In
-        </button>
       </nav>
 
       {/* Hero Section */}
@@ -219,43 +315,22 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* The Iron Rules */}
+      {/* The Iron Rules - Brief */}
       <section className="py-20 px-4 bg-gradient-to-br from-slate-900 to-slate-950 border-t border-slate-800">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">
-            The Unbreakable Rules
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-3xl md:text-4xl font-bold mb-8">
+            Strict Rules. Zero Excuses.
           </h2>
-          <div className="bg-slate-800/50 backdrop-blur-lg p-8 rounded-3xl border border-slate-700">
-            <ul className="space-y-6">
-              <li className="flex items-start gap-4">
-                <div className="mt-1 bg-orange-500 rounded-full p-1">
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h4 className="text-lg font-bold">Daily Check-in Required</h4>
-                  <p className="text-slate-400">You must mark habits as complete before 11:59 PM local time.</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-4">
-                <div className="mt-1 bg-orange-500 rounded-full p-1">
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h4 className="text-lg font-bold">Zero Tolerance Policy</h4>
-                  <p className="text-slate-400">If you miss 3 days in a row, your challenge is void and money forfeited.</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-4">
-                <div className="mt-1 bg-orange-500 rounded-full p-1">
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h4 className="text-lg font-bold">Honesty System</h4>
-                  <p className="text-slate-400">You are the judge. If you lie, you only cheat yourself (and keep your money, but lose your dignity).</p>
-                </div>
-              </li>
-            </ul>
-          </div>
+          <p className="text-slate-400 text-lg mb-8">
+            This challenge operates on an automated system with no human intervention.
+          </p>
+          <button
+            onClick={() => navigate("/rules")}
+            className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-xl font-semibold transition-all flex items-center gap-2 mx-auto"
+          >
+            <BookOpen className="w-5 h-5" />
+            Read Complete Rules
+          </button>
         </div>
       </section>
 
@@ -273,9 +348,107 @@ const LandingPage: React.FC = () => {
         </button>
       </section>
 
-      {/* Footer */}
-      <footer className="py-8 text-center text-slate-600 text-sm border-t border-slate-900">
-        <p>© {new Date().getFullYear()} Sankalp. Built for the disciplined.</p>
+      {/* Enhanced Footer */}
+      <footer className="bg-slate-900 border-t border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          <div className="grid md:grid-cols-4 gap-8">
+            {/* Brand */}
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <Flame className="text-orange-500 fill-orange-500 w-8 h-8" />
+                <span className="text-xl font-bold">Sankalp</span>
+              </div>
+              <p className="text-slate-400 text-sm">
+                The habit tracker that charges you ₹500 if you quit.
+              </p>
+              <div className="flex gap-4 mt-4">
+                <a href="#" className="text-slate-400 hover:text-orange-500">
+                  <Twitter className="w-5 h-5" />
+                </a>
+                <a href="#" className="text-slate-400 hover:text-orange-500">
+                  <Instagram className="w-5 h-5" />
+                </a>
+                <a href="https://github.com/SunilBaghel002/Sankalp" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-orange-500">
+                  <Github className="w-5 h-5" />
+                </a>
+              </div>
+            </div>
+
+            {/* Quick Links */}
+            <div>
+              <h4 className="font-semibold text-white mb-4">Quick Links</h4>
+              <ul className="space-y-2">
+                <li>
+                  <button onClick={() => navigate("/rules")} className="text-slate-400 hover:text-orange-500 text-sm">
+                    Rules & Guidelines
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => navigate("/leaderboard")} className="text-slate-400 hover:text-orange-500 text-sm">
+                    Leaderboard
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => navigate("/wall-of-shame")} className="text-slate-400 hover:text-orange-500 text-sm">
+                    Wall of Shame
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            {/* Support */}
+            <div>
+              <h4 className="font-semibold text-white mb-4">Support</h4>
+              <ul className="space-y-2">
+                <li>
+                  <button onClick={() => navigate("/query")} className="text-slate-400 hover:text-orange-500 text-sm">
+                    FAQs
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => navigate("/query")} className="text-slate-400 hover:text-orange-500 text-sm flex items-center gap-1">
+                    <MessageCircle className="w-3 h-3" />
+                    Live Chat
+                  </button>
+                </li>
+                <li>
+                  <a href="mailto:support@sankalp.app" className="text-slate-400 hover:text-orange-500 text-sm flex items-center gap-1">
+                    <Mail className="w-3 h-3" />
+                    Email Us
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            {/* Legal */}
+            <div>
+              <h4 className="font-semibold text-white mb-4">Legal</h4>
+              <ul className="space-y-2">
+                <li>
+                  <button onClick={() => navigate("/privacy")} className="text-slate-400 hover:text-orange-500 text-sm">
+                    Privacy Policy
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => navigate("/terms")} className="text-slate-400 hover:text-orange-500 text-sm">
+                    Terms of Service
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => navigate("/refund")} className="text-slate-400 hover:text-orange-500 text-sm">
+                    Refund Policy
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-800 mt-8 pt-8 text-center">
+            <p className="text-slate-500 text-sm">
+              © {new Date().getFullYear()} Sankalp. Built for the disciplined. Created by Sunil Baghel.
+            </p>
+          </div>
+        </div>
       </footer>
     </div>
   );
