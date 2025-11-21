@@ -1,3 +1,4 @@
 1. venv\Scripts\Activate.ps1
 2. uvicorn main:app --reload
 3. uvicorn main:app --reload --port 8000 --host localhost
+4. pip freeze > requirements.txt
