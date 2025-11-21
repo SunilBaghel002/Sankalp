@@ -14,6 +14,7 @@ import StreakPage from "./pages/StreakPage";
 import QuitPage from "./pages/QuitPage";
 import SuccessPage from "./pages/SuccessPage";
 import AuthCallback from "./pages/AuthCallback";
+import RulesPage from "./pages/RulesPage";
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/pay-deposit" element={<PayDepositPage />} />
+          <Route path="/rules" element={<RulesPage />} />
 
           {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>

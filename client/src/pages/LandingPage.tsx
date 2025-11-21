@@ -73,6 +73,9 @@ const LandingPage: React.FC = () => {
           <Flame className="text-orange-500 fill-orange-500" />
           <span>Sankalp</span>
         </div>
+        <button onClick={() => navigate("/rules")} className="text-slate-400 underline hover:text-orange-500">
+          Read the full Rules of Engagement
+        </button>
         <button
           onClick={() => navigate("/signup")}
           className="text-sm font-semibold hover:text-orange-500 transition-colors"
