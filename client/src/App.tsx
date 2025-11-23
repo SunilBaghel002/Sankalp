@@ -8,6 +8,10 @@ import PayDepositPage from "./pages/PayDepositPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import DailyPage from "./pages/DailyPage";
 import ProtectedRoute from "./components/ProtectedRoute";
+import StreakPage from "./pages/StreakPage";
+import InsightsPage from "./pages/InsightsPage";
+import SuccessPage from "./pages/SuccessPage";
+import QuitPage from "./pages/QuitPage";
 
 function App() {
   return (
@@ -42,6 +46,10 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/insights" element={<ProtectedRoute requiresDeposit={true}><InsightsPage /></ProtectedRoute>} />
+        <Route path="/streak" element={<ProtectedRoute requiresDeposit={true}><StreakPage /></ProtectedRoute>} />
+        <Route path="/quit" element={<ProtectedRoute requiresDeposit={true}><QuitPage /></ProtectedRoute>} />
+        <Route path="/success" element={<ProtectedRoute requiresDeposit={true}><SuccessPage /></ProtectedRoute>} />
       </Routes>
     </Router>
   );
