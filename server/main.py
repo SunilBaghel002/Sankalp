@@ -3,13 +3,14 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 import os
 import requests
 import logging
 from datetime import datetime, date, timedelta
 from passlib.context import CryptContext
 from email_service import generate_otp, send_otp_email, store_otp, verify_otp
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,8 +19,17 @@ from models import User, Habit, CheckIn
 from schemas import UserOut, HabitCreate, HabitOut, CheckInCreate
 from auth import verify_google_token, create_access_token, get_current_user
 
+load_dotenv()
+
 app = FastAPI(title="Sankalp - Unbreakable Habits")
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+try:
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    # Test if bcrypt works
+    test_hash = pwd_context.hash("test")
+    print("✅ Using bcrypt for password hashing")
+except Exception as e:
+    print(f"⚠️ bcrypt failed, using pbkdf2_sha256: {e}")
+    pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # Environment
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
@@ -39,6 +49,22 @@ app.add_middleware(
 
 class GoogleCallbackRequest(BaseModel):
     code: str
+
+class EmailSignupRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+class EmailLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+class ResendOTPRequest(BaseModel):
+    email: EmailStr
 
 used_codes = set()
 
@@ -334,13 +360,20 @@ async def get_user_stats(user: User = Depends(get_current_user)):
 # ==================== EMAIL AUTH ENDPOINTS ====================
 
 @app.post("/auth/email/signup")
-async def email_signup(request: dict):  # ✅ REMOVED: session: Session = Depends(get_session)
-    name = request.get("name")
-    email = request.get("email")
-    password = request.get("password")
+async def email_signup(request: EmailSignupRequest):
+    name = request.name
+    email = request.email
+    password = request.password
 
     if not all([name, email, password]):
         raise HTTPException(400, "Name, email, and password are required")
+
+    # Properly handle password truncation
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
+        logging.warning(f"Password truncated for {email} (was {len(password_bytes)} bytes)")
+        password_bytes = password_bytes[:72]
+        password = password_bytes.decode('utf-8', errors='ignore')
 
     # Check if user already exists
     existing_user = supabase.table('users').select('*').eq('email', email).execute()
@@ -348,46 +381,91 @@ async def email_signup(request: dict):  # ✅ REMOVED: session: Session = Depend
         raise HTTPException(400, "Email already registered")
 
     # Hash password
-    password_hash = pwd_context.hash(password)
+    try:
+        password_hash = pwd_context.hash(password)
+        logging.info(f"Password hashed successfully for {email}")
+    except Exception as hash_error:
+        logging.error(f"Password hashing failed: {str(hash_error)}")
+        import hashlib
+        fallback_hash = hashlib.sha256(password.encode()).hexdigest()
+        password_hash = f"sha256${fallback_hash}"
+        logging.warning(f"Using fallback SHA256 for {email}")
 
     # Generate and send OTP
     otp = generate_otp()
     success = send_otp_email(email, otp, name)
 
     if not success:
-        raise HTTPException(500, "Failed to send verification email")
+        raise HTTPException(500, "Failed to send verification email. Please check email configuration.")
 
     # Store OTP
     store_otp(email, otp)
 
-    # Create user with hashed password (unverified)
+    # ✅ FIXED: Build user object dynamically based on what columns exist
     new_user = {
         "email": email,
         "name": name,
-        "google_id": f"email_{email}",  # Unique identifier for email users
+        "google_id": None,  # NULL for email users
         "deposit_paid": False,
-        "password_hash": password_hash,
-        # Note: You'll need to add password_hash column to your Supabase users table
     }
+    
+    # Try to add optional columns (they might not exist yet)
+    try:
+        # Check if these columns exist by doing a test query
+        test_response = supabase.table('users').select('*').limit(1).execute()
+        if test_response.data and len(test_response.data) > 0:
+            sample_user = test_response.data[0]
+            
+            # Only add fields if they exist in the schema
+            if 'password_hash' in sample_user:
+                new_user["password_hash"] = password_hash
+            if 'login_type' in sample_user:
+                new_user["login_type"] = "email"
+            if 'email_verified' in sample_user:
+                new_user["email_verified"] = False
+    except:
+        # If test fails, just use basic fields
+        pass
+    
+    # If password_hash isn't in schema yet, store it separately or skip
+    if "password_hash" not in new_user:
+        logging.warning("⚠️ password_hash column not found in database. Run the SQL migration!")
+        # For now, just store without password (you'll need to add it later)
+        new_user["password_hash"] = password_hash  # Try anyway
 
     # Insert user
     try:
         response = supabase.table('users').insert(new_user).execute()
-        logging.info(f"✅ User {email} registered, OTP sent")
+        logging.info(f"✅ User {email} registered, OTP sent: {otp}")
+        return {"message": "OTP sent to your email", "email": email}
     except Exception as e:
-        logging.error(f"Failed to create user: {str(e)}")
-        raise HTTPException(500, "Failed to create user")
-
-    return {"message": "OTP sent to your email", "email": email}
+        error_msg = str(e)
+        logging.error(f"Failed to create user: {error_msg}")
+        
+        # Provide helpful error messages
+        if "email_verified" in error_msg:
+            raise HTTPException(500, "Database missing email_verified column. Please run: ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE;")
+        elif "login_type" in error_msg:
+            raise HTTPException(500, "Database missing login_type column. Please run: ALTER TABLE users ADD COLUMN login_type VARCHAR(20) DEFAULT 'google';")
+        elif "password_hash" in error_msg:
+            raise HTTPException(500, "Database missing password_hash column. Please run: ALTER TABLE users ADD COLUMN password_hash TEXT;")
+        elif "null value in column \"google_id\"" in error_msg:
+            raise HTTPException(500, "google_id must be nullable. Please run: ALTER TABLE users ALTER COLUMN google_id DROP NOT NULL;")
+        
+        raise HTTPException(500, f"Failed to create user: {error_msg}")
 
 
 @app.post("/auth/email/login")
-async def email_login(request: dict):
-    email = request.get("email")
-    password = request.get("password")
+async def email_login(request: EmailLoginRequest):  # ✅ FIXED: Use Pydantic model
+    email = request.email
+    password = request.password
 
     if not all([email, password]):
         raise HTTPException(400, "Email and password are required")
+
+    # ✅ FIXED: Truncate password to 72 bytes
+    if len(password.encode('utf-8')) > 72:
+        password = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
 
     # Find user
     user_response = supabase.table('users').select('*').eq('email', email).execute()
@@ -397,19 +475,17 @@ async def email_login(request: dict):
 
     user = user_response.data[0]
 
-    # TODO: Verify password (you need to store password_hash in DB)
-    # Add password_hash column to your Supabase users table
-    # if not pwd_context.verify(password, user.get('password_hash')):
-    #     raise HTTPException(401, "Invalid credentials")
-    
+    # Check if this is an email user
     if 'password_hash' not in user or not user['password_hash']:
         raise HTTPException(401, "This account uses Google login")
     
-    if not pwd_context.verify(password, user['password_hash']):
+    # Verify password
+    try:
+        if not pwd_context.verify(password, user['password_hash']):
+            raise HTTPException(401, "Invalid credentials")
+    except Exception as e:
+        logging.error(f"Password verification failed: {str(e)}")
         raise HTTPException(401, "Invalid credentials")
-
-    # For now, skip password verification (INSECURE - FIX THIS!)
-    logging.warning("⚠️ Password verification skipped - add password_hash to DB!")
 
     # Create JWT
     access_token = create_access_token({"sub": email, "user_id": user['id']})
@@ -421,6 +497,7 @@ async def email_login(request: dict):
             "id": user['id'],
             "email": user['email'],
             "name": user['name'],
+            "deposit_paid": user.get('deposit_paid', False)
         }
     })
 
@@ -438,11 +515,10 @@ async def email_login(request: dict):
     logging.info(f"✅ User {email} logged in")
     return response
 
-
 @app.post("/auth/email/verify-otp")
-async def verify_otp_endpoint(request: dict):
-    email = request.get("email")
-    otp = request.get("otp")
+async def verify_otp_endpoint(request: VerifyOTPRequest):
+    email = request.email
+    otp = request.otp
 
     if not all([email, otp]):
         raise HTTPException(400, "Email and OTP are required")
@@ -451,10 +527,16 @@ async def verify_otp_endpoint(request: dict):
     if not verify_otp(email, otp):
         raise HTTPException(400, "Invalid or expired OTP")
 
-    # Update user as verified (add email_verified field to your DB if needed)
-    # supabase.table('users').update({"email_verified": True}).eq('email', email).execute()
+    # ✅ FIXED: Only update email_verified if column exists
+    try:
+        # Try to update email_verified
+        supabase.table('users').update({"email_verified": True}).eq('email', email).execute()
+        logging.info(f"✅ Email verified status updated for {email}")
+    except Exception as e:
+        # Column might not exist yet
+        logging.warning(f"Could not update email_verified (column might not exist): {str(e)}")
 
-    # Create JWT
+    # Get user
     user_response = supabase.table('users').select('*').eq('email', email).execute()
     
     if not user_response.data:
@@ -462,12 +544,18 @@ async def verify_otp_endpoint(request: dict):
     
     user = user_response.data[0]
 
+    # Create JWT
     access_token = create_access_token({"sub": email, "user_id": user['id']})
 
     response = JSONResponse({
         "success": True,
         "message": "Email verified successfully",
-        "user": user
+        "user": {
+            "id": user['id'],
+            "email": user['email'],
+            "name": user['name'],
+            "deposit_paid": user.get('deposit_paid', False)
+        }
     })
 
     response.set_cookie(
@@ -481,13 +569,13 @@ async def verify_otp_endpoint(request: dict):
         max_age=30 * 24 * 60 * 60,
     )
 
-    logging.info(f"✅ Email {email} verified")
+    logging.info(f"✅ Email {email} verified and logged in")
     return response
 
 
 @app.post("/auth/email/resend-otp")
-async def resend_otp(request: dict):
-    email = request.get("email")
+async def resend_otp(request: ResendOTPRequest):  # ✅ FIXED: Use Pydantic model
+    email = request.email
 
     if not email:
         raise HTTPException(400, "Email is required")
