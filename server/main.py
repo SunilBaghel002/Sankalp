@@ -68,6 +68,16 @@ class ResendOTPRequest(BaseModel):
 
 used_codes = set()
 
+COOKIE_CONFIG = {
+    "key": "access_token",
+    "httponly": True,
+    "secure": False,  # Set to True in production with HTTPS
+    "samesite": "lax",
+    "domain": None,  # ✅ CHANGED: Don't set domain for localhost
+    "path": "/",
+    "max_age": 30 * 24 * 60 * 60,  # 30 days
+}
+
 @app.post("/auth/google/callback")
 async def google_callback(request_body: GoogleCallbackRequest):
     code = request_body.code
@@ -152,14 +162,8 @@ async def google_callback(request_body: GoogleCallbackRequest):
         })
         
         response.set_cookie(
-            key="access_token",
-            value=access_token,
-            httponly=True,
-            secure=False,
-            samesite="lax",
-            domain="localhost",
-            path="/",
-            max_age=30 * 24 * 60 * 60,
+            **COOKIE_CONFIG,
+            value=access_token
         )
         
         logging.info(f"✅ Login successful for {user.email}")

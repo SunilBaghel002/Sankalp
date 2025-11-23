@@ -1,42 +1,104 @@
 // src/components/ProtectedRoute.tsx
-import React from "react";
-import { Navigate, Outlet } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Navigate, useLocation } from "react-router-dom";
+import { checkAuth } from "../lib/auth";
 import { useStore } from "../store/useStore";
-import { useAuth } from "../context/AuthContext";
 
-const ProtectedRoute: React.FC = () => {
-  const { user, depositPaid } = useStore();
-  const { isLoading, isAuthenticated } = useAuth();
+interface ProtectedRouteProps {
+  children: React.ReactElement;
+  requiresDeposit?: boolean;
+}
 
-  // Show loading spinner while checking auth
-  if (isLoading) {
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  requiresDeposit = false,
+}) => {
+  const [isChecking, setIsChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const location = useLocation();
+  const { setUser, depositPaid, setDepositPaid } = useStore();
+
+  useEffect(() => {
+    let mounted = true;
+
+    const verify = async () => {
+      try {
+        // ✅ Add a small delay to ensure cookie is set
+        if (location.pathname === "/onboarding" && location.state?.fromPayment) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        const authenticated = await checkAuth();
+        
+        if (!authenticated) {
+          console.log("❌ ProtectedRoute: Not authenticated, redirecting to signup");
+          if (mounted) {
+            setIsChecking(false);
+            setIsAuthenticated(false);
+          }
+          return;
+        }
+
+        // Fetch user data
+        const response = await fetch("http://localhost:8000/me", {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          console.error("Failed to fetch user data in ProtectedRoute");
+          if (mounted) {
+            setIsChecking(false);
+            setIsAuthenticated(false);
+          }
+          return;
+        }
+
+        const userData = await response.json();
+        console.log("✅ ProtectedRoute: User authenticated", userData);
+
+        if (mounted) {
+          setUser(userData);
+          setDepositPaid(userData.deposit_paid);
+          setIsAuthenticated(true);
+          setIsChecking(false);
+        }
+      } catch (error) {
+        console.error("ProtectedRoute verification error:", error);
+        if (mounted) {
+          setIsChecking(false);
+          setIsAuthenticated(false);
+        }
+      }
+    };
+
+    verify();
+
+    return () => {
+      mounted = false;
+    };
+  }, [location, setUser, setDepositPaid]);
+
+  if (isChecking) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-orange-500 mx-auto mb-4"></div>
-          <p className="text-white">Loading...</p>
-        </div>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-orange-500"></div>
       </div>
     );
   }
 
-  // If not authenticated, redirect to signup
-  if (!isAuthenticated || !user) {
-    console.log("❌ ProtectedRoute: Not authenticated, redirecting to signup");
+  if (!isAuthenticated) {
     return <Navigate to="/signup" replace />;
   }
 
-  // If user exists but hasn't paid, redirect to pay-deposit
-  if (!depositPaid) {
-    console.log(
-      "❌ ProtectedRoute: Deposit not paid, redirecting to pay-deposit"
-    );
+  if (requiresDeposit && !depositPaid) {
     return <Navigate to="/pay-deposit" replace />;
   }
 
-  // User is authenticated and paid - render child routes
-  console.log("✅ ProtectedRoute: Access granted");
-  return <Outlet />;
+  return children;
 };
 
 export default ProtectedRoute;

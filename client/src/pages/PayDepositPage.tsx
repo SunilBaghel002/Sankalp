@@ -93,10 +93,10 @@ const PayDepositPage: React.FC = () => {
       const data = await res.json();
       console.log("✅ Payment marked successful:", data);
 
-      // ✅ Update store with payment status
+      // Update store with payment status
       setDepositPaid(true);
 
-      // ✅ Update user data with deposit_paid = true
+      // Update user data with deposit_paid = true
       if (userData) {
         setUser({ ...userData, deposit_paid: true });
       }
@@ -104,9 +104,12 @@ const PayDepositPage: React.FC = () => {
       // Show success animation briefly
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Navigate to onboarding
+      // ✅ Navigate with state to indicate coming from payment
       console.log("🚀 Navigating to onboarding...");
-      navigate("/onboarding", { replace: true });
+      navigate("/onboarding", {
+        replace: true,
+        state: { fromPayment: true }
+      });
     } catch (err) {
       console.error("Network error:", err);
       alert("Network error. Please check your backend is running.");
