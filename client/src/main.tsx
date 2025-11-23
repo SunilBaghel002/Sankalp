@@ -3,11 +3,14 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { AuthProvider } from "./context/AuthContext.tsx";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  
-    <AuthProvider>
+
+  <AuthProvider>
+    <ErrorBoundary>
       <App />
-    </AuthProvider>
-  
+    </ErrorBoundary>
+  </AuthProvider>
+
 );

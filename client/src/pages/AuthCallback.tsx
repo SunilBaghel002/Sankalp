@@ -22,7 +22,6 @@ const AuthCallback = () => {
       try {
         console.log("Sending code to backend:", code.substring(0, 20) + "...");
 
-        // ✅ Changed to localhost (not 127.0.0.1)
         const response = await fetch(
           "http://localhost:8000/auth/google/callback",
           {
@@ -30,7 +29,7 @@ const AuthCallback = () => {
             headers: {
               "Content-Type": "application/json",
             },
-            credentials: "include", // ✅ Important
+            credentials: "include",
             body: JSON.stringify({ code }),
           }
         );
@@ -46,7 +45,7 @@ const AuthCallback = () => {
         const data = await response.json();
         console.log("Auth success:", data);
 
-        // ✅ Small delay to ensure cookie is set
+        // Small delay to ensure cookie is set
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Navigate to next step
@@ -59,7 +58,7 @@ const AuthCallback = () => {
     };
 
     sendCodeToBackend();
-  }, []);
+  }, [searchParams, navigate]);
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -71,4 +70,4 @@ const AuthCallback = () => {
   );
 };
 
-export default AuthCallback;
+export default AuthCallback; 
