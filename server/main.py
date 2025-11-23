@@ -456,16 +456,12 @@ async def email_signup(request: EmailSignupRequest):
 
 
 @app.post("/auth/email/login")
-async def email_login(request: EmailLoginRequest):  # ✅ FIXED: Use Pydantic model
+async def email_login(request: EmailLoginRequest):
     email = request.email
     password = request.password
 
     if not all([email, password]):
         raise HTTPException(400, "Email and password are required")
-
-    # ✅ FIXED: Truncate password to 72 bytes
-    if len(password.encode('utf-8')) > 72:
-        password = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
 
     # Find user
     user_response = supabase.table('users').select('*').eq('email', email).execute()
@@ -475,16 +471,36 @@ async def email_login(request: EmailLoginRequest):  # ✅ FIXED: Use Pydantic mo
 
     user = user_response.data[0]
 
-    # Check if this is an email user
-    if 'password_hash' not in user or not user['password_hash']:
-        raise HTTPException(401, "This account uses Google login")
+    # Check login type
+    login_type = user.get('login_type', 'google')
     
-    # Verify password
+    if login_type == 'google':
+        raise HTTPException(401, "This account uses Google login. Please sign in with Google.")
+    
+    # Check if password_hash exists
+    if 'password_hash' not in user or not user['password_hash']:
+        raise HTTPException(401, "Password not set for this account")
+    
+    # ✅ Handle both bcrypt and SHA256 fallback hashes
+    stored_hash = user['password_hash']
+    
     try:
-        if not pwd_context.verify(password, user['password_hash']):
-            raise HTTPException(401, "Invalid credentials")
+        if stored_hash.startswith("sha256$"):
+            # Fallback hash
+            import hashlib
+            test_hash = hashlib.sha256(password.encode()).hexdigest()
+            if f"sha256${test_hash}" != stored_hash:
+                raise HTTPException(401, "Invalid credentials")
+        else:
+            # Normal passlib hash
+            # Truncate password if needed
+            if len(password.encode('utf-8')) > 72:
+                password = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
+            
+            if not pwd_context.verify(password, stored_hash):
+                raise HTTPException(401, "Invalid credentials")
     except Exception as e:
-        logging.error(f"Password verification failed: {str(e)}")
+        logging.error(f"Password verification error: {str(e)}")
         raise HTTPException(401, "Invalid credentials")
 
     # Create JWT
