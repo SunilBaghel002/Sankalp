@@ -1,6 +1,6 @@
 // src/pages/StreakPage.tsx
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   Flame,
@@ -8,13 +8,11 @@ import {
   Calendar,
   CheckCircle,
   XCircle,
-  Info,
   Award,
   AlertCircle,
   ArrowLeft,
   Target,
   Zap,
-  Trophy,
   Star,
   ChevronRight,
   Home,
@@ -45,6 +43,7 @@ const StreakPage: React.FC = () => {
   const [totalCompletedDays, setTotalCompletedDays] = useState(0);
   const [challengeStartDate, setChallengeStartDate] = useState<Date>(new Date());
   const [selectedWeek, setSelectedWeek] = useState(0);
+  const [actualDaysPassed, setActualDaysPassed] = useState(0);
 
   useEffect(() => {
     fetchStreakData();
@@ -54,18 +53,7 @@ const StreakPage: React.FC = () => {
     try {
       setLoading(true);
 
-      // Get stats from backend
-      const statsResponse = await fetch("http://localhost:8000/stats", {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (statsResponse.ok) {
-        const stats = await statsResponse.json();
-        setCurrentStreak(stats.current_streak || 0);
-      }
-
-      // Get habits
+      // Get habits first
       const habitsResponse = await fetch("http://localhost:8000/habits", {
         method: "GET",
         credentials: "include",
@@ -85,22 +73,26 @@ const StreakPage: React.FC = () => {
         return;
       }
 
-      // Determine start date
+      // Determine start date (when challenge actually began)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      let startDate = today;
+      let startDate = new Date(today);
 
+      // Check user creation date
       if (user?.created_at) {
         const userDate = new Date(user.created_at);
+        userDate.setHours(0, 0, 0, 0);
         if (!isNaN(userDate.getTime())) {
           startDate = userDate;
         }
       }
 
+      // Check habits creation date (use earliest)
       if (habitsData && habitsData.length > 0) {
         for (const habit of habitsData) {
           if (habit.created_at) {
             const habitDate = new Date(habit.created_at);
+            habitDate.setHours(0, 0, 0, 0);
             if (!isNaN(habitDate.getTime()) && habitDate < startDate) {
               startDate = habitDate;
             }
@@ -108,17 +100,21 @@ const StreakPage: React.FC = () => {
         }
       }
 
-      startDate.setHours(0, 0, 0, 0);
-      if (startDate > today) startDate = today;
+      // Ensure start date is not in the future
+      if (startDate > today) {
+        startDate = new Date(today);
+      }
 
       setChallengeStartDate(startDate);
 
+      // Calculate how many days have actually passed
+      const daysPassed = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      setActualDaysPassed(Math.min(daysPassed, 100));
+
       // Build 100-day calendar
       const allDays: DayStatus[] = [];
-      let tempLongestStreak = 0;
-      let currentStreakCount = 0;
-      let tempTotalCompleted = 0;
 
+      // First, fetch ALL data for the 100 days
       for (let i = 0; i < 100; i++) {
         const checkDate = new Date(startDate);
         checkDate.setDate(startDate.getDate() + i);
@@ -141,6 +137,7 @@ const StreakPage: React.FC = () => {
           completionPercentage: 0,
         };
 
+        // Only fetch data for past and today
         if (!isFuture) {
           try {
             const checkinsResponse = await fetch(
@@ -159,14 +156,6 @@ const StreakPage: React.FC = () => {
               dayStatus.habitsCompleted = completedCount;
               dayStatus.completionPercentage = Math.round(completionPercent);
               dayStatus.completed = completionPercent === 100;
-
-              if (dayStatus.completed) {
-                tempTotalCompleted++;
-                currentStreakCount++;
-                tempLongestStreak = Math.max(tempLongestStreak, currentStreakCount);
-              } else {
-                currentStreakCount = 0;
-              }
             }
           } catch (error) {
             console.error(`Error fetching checkins for ${dateStr}:`, error);
@@ -176,9 +165,55 @@ const StreakPage: React.FC = () => {
         allDays.push(dayStatus);
       }
 
+      // Now calculate streaks AFTER we have all the data
+      let tempLongestStreak = 0;
+      let tempCurrentStreak = 0;
+      let tempTotalCompleted = 0;
+      let streakCounter = 0;
+
+      // Calculate longest streak (scan through all past days)
+      for (let i = 0; i < allDays.length; i++) {
+        if (allDays[i].isFuture) break; // Stop at future days
+
+        if (allDays[i].completed) {
+          streakCounter++;
+          tempLongestStreak = Math.max(tempLongestStreak, streakCounter);
+          tempTotalCompleted++;
+        } else {
+          streakCounter = 0;
+        }
+      }
+
+      // Calculate current streak (backwards from most recent day)
+      // Find the most recent non-future day
+      let mostRecentIndex = -1;
+      for (let i = allDays.length - 1; i >= 0; i--) {
+        if (!allDays[i].isFuture) {
+          mostRecentIndex = i;
+          break;
+        }
+      }
+
+      // Count backwards from most recent day
+      if (mostRecentIndex >= 0) {
+        for (let i = mostRecentIndex; i >= 0; i--) {
+          if (allDays[i].completed) {
+            tempCurrentStreak++;
+          } else {
+            break; // Streak is broken
+          }
+        }
+      }
+
       setDayStatuses(allDays);
+      setCurrentStreak(tempCurrentStreak);
       setLongestStreak(tempLongestStreak);
       setTotalCompletedDays(tempTotalCompleted);
+
+      // Auto-select the current week
+      const currentWeekIndex = Math.floor(mostRecentIndex / 7);
+      setSelectedWeek(currentWeekIndex >= 0 ? currentWeekIndex : 0);
+
       setLoading(false);
     } catch (error) {
       console.error("Error fetching streak data:", error);
@@ -237,6 +272,7 @@ const StreakPage: React.FC = () => {
       weekday: "short",
       day: "numeric",
       month: "short",
+      year: "numeric",
     });
 
     if (status.isFuture) return `Day ${status.dayNumber} (${dateFormatted}): Future`;
@@ -248,11 +284,13 @@ const StreakPage: React.FC = () => {
 
   const getAchievementBadges = () => {
     const badges = [];
-    if (currentStreak >= 7) badges.push({ icon: "🔥", title: "Week Warrior", desc: "7-day streak!" });
-    if (currentStreak >= 30) badges.push({ icon: "⚡", title: "Month Master", desc: "30-day streak!" });
-    if (currentStreak >= 50) badges.push({ icon: "💪", title: "Halfway Hero", desc: "50-day streak!" });
-    if (currentStreak >= 75) badges.push({ icon: "🏆", title: "Almost There", desc: "75-day streak!" });
+    if (longestStreak >= 7) badges.push({ icon: "🔥", title: "Week Warrior", desc: `${longestStreak}-day best streak!` });
+    if (longestStreak >= 30) badges.push({ icon: "⚡", title: "Month Master", desc: "30+ day streak!" });
+    if (longestStreak >= 50) badges.push({ icon: "💪", title: "Halfway Hero", desc: "50+ day streak!" });
+    if (longestStreak >= 75) badges.push({ icon: "🏆", title: "Almost There", desc: "75+ day streak!" });
     if (totalCompletedDays >= 100) badges.push({ icon: "🎉", title: "Champion", desc: "100 days complete!" });
+    if (totalCompletedDays >= 50) badges.push({ icon: "🌟", title: "50 Perfect Days", desc: "Halfway to freedom!" });
+    if (currentStreak >= 14) badges.push({ icon: "💎", title: "Two Weeks", desc: "14+ days current!" });
     return badges;
   };
 
@@ -441,14 +479,14 @@ const StreakPage: React.FC = () => {
               <button
                 onClick={() => setSelectedWeek(Math.max(0, selectedWeek - 1))}
                 disabled={selectedWeek === 0}
-                className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded-lg transition-all"
+                className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-all"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setSelectedWeek(Math.min(weekData.totalWeeks - 1, selectedWeek + 1))}
                 disabled={selectedWeek === weekData.totalWeeks - 1}
-                className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded-lg transition-all"
+                className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-all"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -487,7 +525,7 @@ const StreakPage: React.FC = () => {
             <div className="flex items-center gap-2 text-sm">
               <CalendarDays className="w-5 h-5 text-slate-400" />
               <span className="text-slate-400">
-                Day {Math.min(Math.floor((new Date().getTime() - challengeStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1, 100)} of 100
+                Day {actualDaysPassed} of 100
               </span>
             </div>
           </div>
@@ -533,6 +571,10 @@ const StreakPage: React.FC = () => {
               <div className="w-4 h-4 bg-slate-700 rounded border-2 border-orange-400 shadow-lg shadow-orange-500/30"></div>
               <span className="text-slate-400">Today</span>
             </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-slate-800 rounded border-2 border-slate-700"></div>
+              <span className="text-slate-400">Future</span>
+            </div>
           </div>
         </motion.div>
 
@@ -552,7 +594,7 @@ const StreakPage: React.FC = () => {
           <div className="bg-slate-700 rounded-full h-4 overflow-hidden mb-3">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min(totalCompletedDays, 100)}%` }}
+              animate={{ width: `${Math.min((totalCompletedDays / 100) * 100, 100)}%` }}
               transition={{ duration: 1, delay: 0.7 }}
               className="h-full bg-gradient-to-r from-orange-500 via-red-500 to-pink-500"
             />

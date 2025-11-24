@@ -304,59 +304,114 @@ async def get_user_stats(user: User = Depends(get_current_user)):
                 "total_habits": 0,
                 "total_checkins": 0,
                 "current_streak": 0,
+                "total_completed_days": 0,
+                "longest_streak": 0,
                 "deposit_paid": user.deposit_paid
             }
         
-        # Calculate streak
-        today = date.today()
-        streak = 0
-        
-        # Group checkins by date
+        # Group checkins by date (ensure consistent string format)
         checkins_by_date = {}
         for checkin in checkins:
+            # Ensure date is in string format YYYY-MM-DD
             checkin_date = checkin['date']
-            if checkin_date not in checkins_by_date:
-                checkins_by_date[checkin_date] = []
+            if isinstance(checkin_date, str):
+                date_str = checkin_date
+            else:
+                # Convert date object to string
+                date_str = str(checkin_date)
+            
+            if date_str not in checkins_by_date:
+                checkins_by_date[date_str] = []
             if checkin['completed']:
-                checkins_by_date[checkin_date].append(checkin['habit_id'])
+                checkins_by_date[date_str].append(checkin['habit_id'])
+        
+        # Get all unique dates and sort them
+        all_dates = sorted(checkins_by_date.keys())
+        
+        # Calculate longest streak by scanning all dates
+        longest_streak = 0
+        current_streak_count = 0
+        
+        # Convert string dates to date objects for proper iteration
+        if all_dates:
+            start_date = datetime.strptime(all_dates[0], '%Y-%m-%d').date()
+            end_date = datetime.strptime(all_dates[-1], '%Y-%m-%d').date()
+            
+            # Iterate through all dates from start to end
+            current_check_date = start_date
+            while current_check_date <= end_date:
+                date_str = current_check_date.strftime('%Y-%m-%d')
+                
+                if date_str in checkins_by_date:
+                    completed_habits = len(set(checkins_by_date[date_str]))
+                    if completed_habits == total_habits:
+                        current_streak_count += 1
+                        longest_streak = max(longest_streak, current_streak_count)
+                    else:
+                        current_streak_count = 0
+                else:
+                    current_streak_count = 0
+                
+                current_check_date += timedelta(days=1)
         
         # Calculate current streak (counting backwards from today)
+        today = date.today()
+        current_streak = 0
         current_date = today
+        
+        # Go backwards from today
         while True:
-            date_str = str(current_date)
+            date_str = current_date.strftime('%Y-%m-%d')
+            
             if date_str in checkins_by_date:
                 # Check if all habits were completed on this date
                 completed_habits = len(set(checkins_by_date[date_str]))
                 if completed_habits == total_habits:
-                    streak += 1
+                    current_streak += 1
                     current_date = current_date - timedelta(days=1)
                 else:
+                    # Partial completion breaks the streak
                     break
             else:
-                # No checkins for this date, streak broken
-                break
+                # No checkins for this date
+                # If we haven't started counting yet (streak is 0), go back one more day
+                # This handles the case where user hasn't checked in today yet
+                if current_streak == 0:
+                    current_date = current_date - timedelta(days=1)
+                    # Don't go back more than 2 days when looking for streak start
+                    if (today - current_date).days > 1:
+                        break
+                else:
+                    # Streak is broken
+                    break
         
-        # Count total completed days
+        # Count total completed days (days with 100% habit completion)
         total_completed_days = 0
         for date_str, habit_ids in checkins_by_date.items():
             if len(set(habit_ids)) == total_habits:
                 total_completed_days += 1
         
+        logging.info(f"Stats for user {user.email}: streak={current_streak}, longest={longest_streak}, completed={total_completed_days}")
+        
         return {
             "total_habits": total_habits,
             "total_checkins": len(checkins),
-            "current_streak": streak,
+            "current_streak": current_streak,
             "total_completed_days": total_completed_days,
+            "longest_streak": longest_streak,
             "deposit_paid": user.deposit_paid
         }
     except Exception as e:
         logging.error(f"Error fetching stats: {str(e)}")
+        import traceback
+        traceback.print_exc()
         # Return default values instead of error
         return {
             "total_habits": 0,
             "total_checkins": 0, 
             "current_streak": 0,
             "total_completed_days": 0,
+            "longest_streak": 0,
             "deposit_paid": False
         }
 
