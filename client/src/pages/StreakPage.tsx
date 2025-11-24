@@ -45,6 +45,19 @@ const StreakPage: React.FC = () => {
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [actualDaysPassed, setActualDaysPassed] = useState(0);
 
+  // Helper function to get date string in YYYY-MM-DD format (local timezone)
+  const getDateString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Helper function to compare dates (ignoring time)
+  const isSameDate = (date1: Date, date2: Date): boolean => {
+    return getDateString(date1) === getDateString(date2);
+  };
+
   useEffect(() => {
     fetchStreakData();
   }, []);
@@ -73,31 +86,43 @@ const StreakPage: React.FC = () => {
         return;
       }
 
-      // Determine start date (when challenge actually began)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      let startDate = new Date(today);
+      // Get stats from backend
+      const statsResponse = await fetch("http://localhost:8000/stats", {
+        method: "GET",
+        credentials: "include",
+      });
 
-      // Check user creation date
-      if (user?.created_at) {
-        const userDate = new Date(user.created_at);
-        userDate.setHours(0, 0, 0, 0);
-        if (!isNaN(userDate.getTime())) {
-          startDate = userDate;
-        }
+      if (statsResponse.ok) {
+        const stats = await statsResponse.json();
+        setCurrentStreak(stats.current_streak || 0);
+        setLongestStreak(stats.longest_streak || 0);
       }
 
-      // Check habits creation date (use earliest)
+      // Determine start date - USE EARLIEST HABIT CREATION DATE
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let startDate: Date | null = null;
+
+      // Use earliest habit creation date as the TRUE start date
       if (habitsData && habitsData.length > 0) {
         for (const habit of habitsData) {
           if (habit.created_at) {
             const habitDate = new Date(habit.created_at);
             habitDate.setHours(0, 0, 0, 0);
-            if (!isNaN(habitDate.getTime()) && habitDate < startDate) {
-              startDate = habitDate;
+
+            if (!isNaN(habitDate.getTime())) {
+              if (!startDate || habitDate < startDate) {
+                startDate = habitDate;
+              }
             }
           }
         }
+      }
+
+      // Fallback to today if no valid habit date found
+      if (!startDate || isNaN(startDate.getTime())) {
+        startDate = new Date(today);
       }
 
       // Ensure start date is not in the future
@@ -105,23 +130,31 @@ const StreakPage: React.FC = () => {
         startDate = new Date(today);
       }
 
+      console.log("📅 Challenge Start Date:", getDateString(startDate));
       setChallengeStartDate(startDate);
 
-      // Calculate how many days have actually passed
+      // Calculate how many days have actually passed since start
       const daysPassed = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-      setActualDaysPassed(Math.min(daysPassed, 100));
+      const actualDays = Math.min(Math.max(daysPassed, 1), 100);
+      setActualDaysPassed(actualDays);
+
+      console.log("📊 Days passed since start:", actualDays);
 
       // Build 100-day calendar
       const allDays: DayStatus[] = [];
+      let tempTotalCompleted = 0;
+      const todayStr = getDateString(today);
 
-      // First, fetch ALL data for the 100 days
+      console.log("📍 Today's date:", todayStr);
+
+      // Fetch ALL data for the 100 days
       for (let i = 0; i < 100; i++) {
         const checkDate = new Date(startDate);
         checkDate.setDate(startDate.getDate() + i);
         checkDate.setHours(0, 0, 0, 0);
 
-        const dateStr = checkDate.toISOString().split("T")[0];
-        const isToday = checkDate.toDateString() === today.toDateString();
+        const dateStr = getDateString(checkDate);
+        const isToday = dateStr === todayStr;
         const isFuture = checkDate > today;
         const isPast = checkDate < today;
 
@@ -137,7 +170,7 @@ const StreakPage: React.FC = () => {
           completionPercentage: 0,
         };
 
-        // Only fetch data for past and today
+        // Only fetch data for past days and today
         if (!isFuture) {
           try {
             const checkinsResponse = await fetch(
@@ -156,63 +189,39 @@ const StreakPage: React.FC = () => {
               dayStatus.habitsCompleted = completedCount;
               dayStatus.completionPercentage = Math.round(completionPercent);
               dayStatus.completed = completionPercent === 100;
+
+              if (dayStatus.completed) {
+                tempTotalCompleted++;
+              }
+
+              console.log(`Day ${i + 1} (${dateStr}):`, {
+                isToday,
+                isFuture,
+                isPast,
+                completed: dayStatus.completed,
+                habitsCompleted: completedCount,
+                totalHabits
+              });
             }
           } catch (error) {
             console.error(`Error fetching checkins for ${dateStr}:`, error);
           }
+        } else {
+          console.log(`Day ${i + 1} (${dateStr}): Future day`);
         }
 
         allDays.push(dayStatus);
       }
 
-      // Now calculate streaks AFTER we have all the data
-      let tempLongestStreak = 0;
-      let tempCurrentStreak = 0;
-      let tempTotalCompleted = 0;
-      let streakCounter = 0;
-
-      // Calculate longest streak (scan through all past days)
-      for (let i = 0; i < allDays.length; i++) {
-        if (allDays[i].isFuture) break; // Stop at future days
-
-        if (allDays[i].completed) {
-          streakCounter++;
-          tempLongestStreak = Math.max(tempLongestStreak, streakCounter);
-          tempTotalCompleted++;
-        } else {
-          streakCounter = 0;
-        }
-      }
-
-      // Calculate current streak (backwards from most recent day)
-      // Find the most recent non-future day
-      let mostRecentIndex = -1;
-      for (let i = allDays.length - 1; i >= 0; i--) {
-        if (!allDays[i].isFuture) {
-          mostRecentIndex = i;
-          break;
-        }
-      }
-
-      // Count backwards from most recent day
-      if (mostRecentIndex >= 0) {
-        for (let i = mostRecentIndex; i >= 0; i--) {
-          if (allDays[i].completed) {
-            tempCurrentStreak++;
-          } else {
-            break; // Streak is broken
-          }
-        }
-      }
+      console.log("✅ Total Perfect Days:", tempTotalCompleted);
+      console.log("📊 Days Remaining:", 100 - tempTotalCompleted);
 
       setDayStatuses(allDays);
-      setCurrentStreak(tempCurrentStreak);
-      setLongestStreak(tempLongestStreak);
       setTotalCompletedDays(tempTotalCompleted);
 
-      // Auto-select the current week
-      const currentWeekIndex = Math.floor(mostRecentIndex / 7);
-      setSelectedWeek(currentWeekIndex >= 0 ? currentWeekIndex : 0);
+      // Auto-select the current week (based on days passed, not today's position)
+      const currentWeekIndex = Math.floor((actualDays - 1) / 7);
+      setSelectedWeek(Math.max(0, currentWeekIndex));
 
       setLoading(false);
     } catch (error) {
@@ -268,7 +277,8 @@ const StreakPage: React.FC = () => {
   };
 
   const getTooltipText = (status: DayStatus) => {
-    const dateFormatted = new Date(status.date).toLocaleDateString("en-IN", {
+    const dateObj = new Date(status.date + "T00:00:00");
+    const dateFormatted = dateObj.toLocaleDateString("en-IN", {
       weekday: "short",
       day: "numeric",
       month: "short",
@@ -284,12 +294,12 @@ const StreakPage: React.FC = () => {
 
   const getAchievementBadges = () => {
     const badges = [];
-    if (longestStreak >= 7) badges.push({ icon: "🔥", title: "Week Warrior", desc: `${longestStreak}-day best streak!` });
+    if (longestStreak >= 7) badges.push({ icon: "🔥", title: "Week Warrior", desc: `${longestStreak}-day best!` });
     if (longestStreak >= 30) badges.push({ icon: "⚡", title: "Month Master", desc: "30+ day streak!" });
     if (longestStreak >= 50) badges.push({ icon: "💪", title: "Halfway Hero", desc: "50+ day streak!" });
     if (longestStreak >= 75) badges.push({ icon: "🏆", title: "Almost There", desc: "75+ day streak!" });
     if (totalCompletedDays >= 100) badges.push({ icon: "🎉", title: "Champion", desc: "100 days complete!" });
-    if (totalCompletedDays >= 50) badges.push({ icon: "🌟", title: "50 Perfect Days", desc: "Halfway to freedom!" });
+    if (totalCompletedDays >= 50) badges.push({ icon: "🌟", title: "50 Perfect Days", desc: "Halfway done!" });
     if (currentStreak >= 14) badges.push({ icon: "💎", title: "Two Weeks", desc: "14+ days current!" });
     return badges;
   };
@@ -337,6 +347,7 @@ const StreakPage: React.FC = () => {
 
   const weekData = getCurrentWeekDays();
   const badges = getAchievementBadges();
+  const daysRemaining = 100 - totalCompletedDays;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -433,7 +444,7 @@ const StreakPage: React.FC = () => {
                 <Target className="w-8 h-8 text-green-400" />
               </div>
               <div>
-                <p className="text-3xl font-bold">{100 - totalCompletedDays}</p>
+                <p className="text-3xl font-bold">{daysRemaining}</p>
                 <p className="text-sm text-slate-400">Days Remaining</p>
               </div>
             </div>
