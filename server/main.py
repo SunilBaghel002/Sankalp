@@ -1551,3 +1551,303 @@ async def get_video_categories(user: User = Depends(get_current_user)):
             {"id": "mindfulness", "name": "Mindfulness", "icon": "🧘"}
         ]
     }
+
+# ==================== GAMIFICATION SYSTEM ====================
+
+# Badge definitions
+BADGES = {
+    "first_habit": {
+        "id": "first_habit",
+        "name": "First Step",
+        "description": "Complete your first habit",
+        "icon": "🌱",
+        "xp": 10
+    },
+    "perfect_day": {
+        "id": "perfect_day",
+        "name": "Perfect Day",
+        "description": "Complete all habits in a day",
+        "icon": "⭐",
+        "xp": 25
+    },
+    "week_warrior": {
+        "id": "week_warrior",
+        "name": "Week Warrior",
+        "description": "7-day streak achieved",
+        "icon": "🔥",
+        "xp": 100
+    },
+    "habit_master": {
+        "id": "habit_master",
+        "name": "Habit Master",
+        "description": "21-day streak achieved",
+        "icon": "🏆",
+        "xp": 250
+    },
+    "month_legend": {
+        "id": "month_legend",
+        "name": "Month Legend",
+        "description": "30-day streak achieved",
+        "icon": "💎",
+        "xp": 500
+    },
+    "halfway_hero": {
+        "id": "halfway_hero",
+        "name": "Halfway Hero",
+        "description": "50 days completed",
+        "icon": "🚀",
+        "xp": 750
+    },
+    "centurion": {
+        "id": "centurion",
+        "name": "Centurion",
+        "description": "100 days completed - Challenge Won!",
+        "icon": "👑",
+        "xp": 1000
+    },
+    "early_bird": {
+        "id": "early_bird",
+        "name": "Early Bird",
+        "description": "Complete a habit before 6 AM",
+        "icon": "🌅",
+        "xp": 50
+    },
+    "night_owl": {
+        "id": "night_owl",
+        "name": "Night Owl",
+        "description": "Complete all habits after 10 PM",
+        "icon": "🦉",
+        "xp": 50
+    },
+    "sleep_champion": {
+        "id": "sleep_champion",
+        "name": "Sleep Champion",
+        "description": "Get 8+ hours of sleep for 7 days",
+        "icon": "😴",
+        "xp": 100
+    },
+    "thought_leader": {
+        "id": "thought_leader",
+        "name": "Thought Leader",
+        "description": "Record 30 daily thoughts",
+        "icon": "💡",
+        "xp": 150
+    },
+    "comeback_kid": {
+        "id": "comeback_kid",
+        "name": "Comeback Kid",
+        "description": "Recover from a missed day",
+        "icon": "💪",
+        "xp": 75
+    }
+}
+
+# Level definitions
+def get_level_info(xp: int) -> dict:
+    """Calculate level based on XP"""
+    levels = [
+        {"level": 1, "name": "Beginner", "min_xp": 0, "max_xp": 100},
+        {"level": 2, "name": "Apprentice", "min_xp": 100, "max_xp": 250},
+        {"level": 3, "name": "Practitioner", "min_xp": 250, "max_xp": 500},
+        {"level": 4, "name": "Journeyman", "min_xp": 500, "max_xp": 1000},
+        {"level": 5, "name": "Expert", "min_xp": 1000, "max_xp": 1750},
+        {"level": 6, "name": "Master", "min_xp": 1750, "max_xp": 2750},
+        {"level": 7, "name": "Grandmaster", "min_xp": 2750, "max_xp": 4000},
+        {"level": 8, "name": "Legend", "min_xp": 4000, "max_xp": 5500},
+        {"level": 9, "name": "Mythic", "min_xp": 5500, "max_xp": 7500},
+        {"level": 10, "name": "Transcendent", "min_xp": 7500, "max_xp": float('inf')}
+    ]
+    
+    for level_info in levels:
+        if level_info["min_xp"] <= xp < level_info["max_xp"]:
+            progress = (xp - level_info["min_xp"]) / (level_info["max_xp"] - level_info["min_xp"]) * 100
+            return {
+                **level_info,
+                "current_xp": xp,
+                "progress": round(progress, 1),
+                "xp_to_next": level_info["max_xp"] - xp
+            }
+    
+    return levels[-1]
+
+
+@app.get("/gamification/profile")
+async def get_gamification_profile(user: User = Depends(get_current_user)):
+    """Get user's gamification profile"""
+    try:
+        # Get user's badges and XP from database
+        user_data = supabase.table('users').select('badges, total_xp').eq('id', user.id).single().execute()
+        
+        earned_badges = user_data.data.get('badges', []) if user_data.data else []
+        total_xp = user_data.data.get('total_xp', 0) if user_data.data else 0
+        
+        level_info = get_level_info(total_xp)
+        
+        # Get badge details
+        badge_details = [
+            {**BADGES[badge_id], "earned": True}
+            for badge_id in earned_badges
+            if badge_id in BADGES
+        ]
+        
+        # Get locked badges
+        locked_badges = [
+            {**badge, "earned": False}
+            for badge_id, badge in BADGES.items()
+            if badge_id not in earned_badges
+        ]
+        
+        return {
+            "level": level_info,
+            "total_xp": total_xp,
+            "earned_badges": badge_details,
+            "locked_badges": locked_badges,
+            "total_badges": len(earned_badges),
+            "available_badges": len(BADGES)
+        }
+    except Exception as e:
+        logging.error(f"Error getting gamification profile: {str(e)}")
+        return {
+            "level": get_level_info(0),
+            "total_xp": 0,
+            "earned_badges": [],
+            "locked_badges": list(BADGES.values()),
+            "total_badges": 0,
+            "available_badges": len(BADGES)
+        }
+
+
+@app.post("/gamification/check-badges")
+async def check_and_award_badges(user: User = Depends(get_current_user)):
+    """Check and award any new badges earned"""
+    try:
+        # Get current user data
+        user_data = supabase.table('users').select('badges, total_xp').eq('id', user.id).single().execute()
+        current_badges = user_data.data.get('badges', []) if user_data.data else []
+        current_xp = user_data.data.get('total_xp', 0) if user_data.data else 0
+        
+        # Get stats
+        stats = await get_user_stats(user)
+        
+        # Get additional data
+        thoughts_count = supabase.table('daily_thoughts').select('id', count='exact').eq('user_id', user.id).execute()
+        sleep_records = supabase.table('sleep_records').select('sleep_hours').eq('user_id', user.id).order('date', desc=True).limit(7).execute()
+        
+        new_badges = []
+        xp_earned = 0
+        
+        # Check each badge condition
+        streak = stats.get('current_streak', 0)
+        total_days = stats.get('total_completed_days', 0)
+        total_checkins = stats.get('total_checkins', 0)
+        
+        # First habit
+        if total_checkins >= 1 and 'first_habit' not in current_badges:
+            new_badges.append('first_habit')
+            xp_earned += BADGES['first_habit']['xp']
+        
+        # Streak badges
+        if streak >= 7 and 'week_warrior' not in current_badges:
+            new_badges.append('week_warrior')
+            xp_earned += BADGES['week_warrior']['xp']
+        
+        if streak >= 21 and 'habit_master' not in current_badges:
+            new_badges.append('habit_master')
+            xp_earned += BADGES['habit_master']['xp']
+        
+        if streak >= 30 and 'month_legend' not in current_badges:
+            new_badges.append('month_legend')
+            xp_earned += BADGES['month_legend']['xp']
+        
+        # Total days badges
+        if total_days >= 50 and 'halfway_hero' not in current_badges:
+            new_badges.append('halfway_hero')
+            xp_earned += BADGES['halfway_hero']['xp']
+        
+        if total_days >= 100 and 'centurion' not in current_badges:
+            new_badges.append('centurion')
+            xp_earned += BADGES['centurion']['xp']
+        
+        # Thought leader
+        if thoughts_count.count >= 30 and 'thought_leader' not in current_badges:
+            new_badges.append('thought_leader')
+            xp_earned += BADGES['thought_leader']['xp']
+        
+        # Sleep champion
+        if sleep_records.data and len(sleep_records.data) >= 7:
+            good_sleep_days = sum(1 for r in sleep_records.data if r.get('sleep_hours', 0) >= 8)
+            if good_sleep_days >= 7 and 'sleep_champion' not in current_badges:
+                new_badges.append('sleep_champion')
+                xp_earned += BADGES['sleep_champion']['xp']
+        
+        # Update user if new badges earned
+        if new_badges:
+            updated_badges = current_badges + new_badges
+            new_xp = current_xp + xp_earned
+            
+            supabase.table('users').update({
+                'badges': updated_badges,
+                'total_xp': new_xp
+            }).eq('id', user.id).execute()
+            
+            return {
+                "new_badges": [BADGES[b] for b in new_badges],
+                "xp_earned": xp_earned,
+                "total_xp": new_xp,
+                "level": get_level_info(new_xp)
+            }
+        
+        return {
+            "new_badges": [],
+            "xp_earned": 0,
+            "total_xp": current_xp,
+            "level": get_level_info(current_xp)
+        }
+    except Exception as e:
+        logging.error(f"Error checking badges: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"new_badges": [], "xp_earned": 0}
+
+
+@app.get("/gamification/leaderboard")
+async def get_leaderboard(user: User = Depends(get_current_user)):
+    """Get global leaderboard"""
+    try:
+        # Get top users by XP
+        response = supabase.table('users').select(
+            'id, name, total_xp, badges'
+        ).order('total_xp', desc=True).limit(10).execute()
+        
+        leaderboard = []
+        for i, u in enumerate(response.data or []):
+            level_info = get_level_info(u.get('total_xp', 0))
+            leaderboard.append({
+                "rank": i + 1,
+                "name": u.get('name', 'Anonymous'),
+                "xp": u.get('total_xp', 0),
+                "level": level_info['level'],
+                "level_name": level_info['name'],
+                "badges_count": len(u.get('badges', [])),
+                "is_current_user": u['id'] == user.id
+            })
+        
+        # Find current user's rank if not in top 10
+        current_user_in_top = any(u['is_current_user'] for u in leaderboard)
+        user_rank = None
+        
+        if not current_user_in_top:
+            # Get user's rank
+            all_users = supabase.table('users').select('id, total_xp').order('total_xp', desc=True).execute()
+            for i, u in enumerate(all_users.data or []):
+                if u['id'] == user.id:
+                    user_rank = i + 1
+                    break
+        
+        return {
+            "leaderboard": leaderboard,
+            "current_user_rank": user_rank
+        }
+    except Exception as e:
+        logging.error(f"Error getting leaderboard: {str(e)}")
+        return {"leaderboard": [], "current_user_rank": None}
