@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Calendar, Check, X, Loader2, AlertTriangle } from "lucide-react";
+import { Check, Loader2, AlertTriangle } from "lucide-react";
 
 const CalendarCallbackPage: React.FC = () => {
     const navigate = useNavigate();
@@ -17,16 +17,22 @@ const CalendarCallbackPage: React.FC = () => {
             const error = searchParams.get("error");
             const errorDescription = searchParams.get("error_description");
 
+            // Check for OAuth errors
             if (error) {
                 setStatus("error");
-                setMessage("Authorization was denied");
-                setDetails(errorDescription || error);
+                if (error === "access_denied") {
+                    setMessage("Access Denied");
+                    setDetails("You need to be added as a test user. Please contact the developer or publish the app.");
+                } else {
+                    setMessage("Authorization Failed");
+                    setDetails(errorDescription || error);
+                }
                 return;
             }
 
             if (!code) {
                 setStatus("error");
-                setMessage("No authorization code received");
+                setMessage("No Authorization Code");
                 setDetails("Please try connecting your calendar again.");
                 return;
             }
@@ -43,9 +49,9 @@ const CalendarCallbackPage: React.FC = () => {
 
                 const data = await response.json();
 
-                if (response.ok) {
+                if (response.ok && data.success) {
                     setStatus("success");
-                    setMessage("Calendar connected successfully!");
+                    setMessage("Calendar Connected!");
                     setDetails("Your habit reminders will now appear in your Google Calendar.");
 
                     // Mark that calendar was just connected
@@ -59,14 +65,14 @@ const CalendarCallbackPage: React.FC = () => {
                     setTimeout(() => navigate(returnUrl), 2000);
                 } else {
                     setStatus("error");
-                    setMessage("Failed to connect calendar");
-                    setDetails(data.detail || "An error occurred during authorization.");
+                    setMessage("Failed to Connect Calendar");
+                    setDetails(data.detail || data.message || "An error occurred during authorization.");
                 }
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Callback error:", error);
                 setStatus("error");
-                setMessage("Connection failed");
-                setDetails("An error occurred while connecting your calendar. Please try again.");
+                setMessage("Connection Failed");
+                setDetails(error.message || "An error occurred while connecting your calendar.");
             }
         };
 
@@ -120,6 +126,17 @@ const CalendarCallbackPage: React.FC = () => {
                         </motion.div>
                         <h2 className="text-2xl font-bold text-white mb-2">{message}</h2>
                         <p className="text-slate-400 mb-6">{details}</p>
+                        
+                        {/* Help text for common errors */}
+                        {message.includes("Access") && (
+                            <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-xl p-4 mb-6 text-left">
+                                <p className="text-yellow-300 text-sm font-medium mb-2">🔒 App in Testing Mode</p>
+                                <p className="text-yellow-200/70 text-xs">
+                                    The app hasn't completed Google verification. Ask the developer to add your email as a test user in Google Cloud Console.
+                                </p>
+                            </div>
+                        )}
+                        
                         <div className="space-y-3">
                             <button
                                 onClick={() => navigate("/daily")}
@@ -128,10 +145,13 @@ const CalendarCallbackPage: React.FC = () => {
                                 Go to Dashboard
                             </button>
                             <button
-                                onClick={() => navigate("/settings")}
+                                onClick={() => {
+                                    localStorage.setItem("calendar_return_url", "/settings");
+                                    window.location.href = "/settings";
+                                }}
                                 className="w-full bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-xl font-semibold transition-colors"
                             >
-                                Try Again in Settings
+                                Try Again
                             </button>
                         </div>
                     </>
