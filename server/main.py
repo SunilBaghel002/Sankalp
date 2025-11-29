@@ -37,6 +37,14 @@ from gemini_service import (
     chat_with_habit_coach
 )
 
+from youtube_service import (
+    search_habit_videos,
+    get_video_details,
+    get_recommended_videos_for_habit,
+    get_daily_video_recommendation,
+    get_learning_path_videos
+)
+
 from datetime import datetime, date, timedelta
 import calendar
 
