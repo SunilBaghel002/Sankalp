@@ -14,6 +14,8 @@ import SuccessPage from "./pages/SuccessPage";
 import QuitPage from "./pages/QuitPage";
 import RouteTitle from "./components/RouteTitle";
 import AnalysisPage from "./pages/Analysis";
+import ImprovePage from "./pages/ImprovePage";
+import CalendarCallbackPage from "./pages/CalendarCallbackPage";
 
 // Page titles configuration
 const pageTitles: Record<string, string> = {
@@ -39,6 +41,7 @@ function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/calendar/callback" element={<CalendarCallbackPage />} />
 
         {/* Protected Routes */}
         <Route
@@ -86,6 +89,14 @@ function App() {
           element={
             <ProtectedRoute requiresDeposit={true}>
               <AnalysisPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/improve"
+          element={
+            <ProtectedRoute requiresDeposit={true}>
+              <ImprovePage />
             </ProtectedRoute>
           }
         />

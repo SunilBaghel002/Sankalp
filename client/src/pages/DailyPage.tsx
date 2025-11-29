@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import Confetti from "react-confetti";
 import { useWindowSize } from "react-use";
+import CalendarSync from "../components/CalendarSync";
 
 const DailyPage: React.FC = () => {
   const navigate = useNavigate();
@@ -510,6 +511,13 @@ const DailyPage: React.FC = () => {
 
           {/* Left Column - Main Content */}
           <div className="lg:col-span-2 space-y-6">
+            <motion.div
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ delay: 0.3 }}
+>
+  <CalendarSync />
+</motion.div>
 
             {/* Welcome Section */}
             <motion.div
