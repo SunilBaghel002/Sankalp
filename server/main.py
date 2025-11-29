@@ -17,6 +17,16 @@ from schemas import (
     SleepRecordCreate, SleepRecordOut,
     MonthlyAnalysisRequest, AnalysisResponse, HabitCompletionData
 )
+
+from google_calendar import (
+    get_calendar_auth_url,
+    exchange_code_for_tokens,
+    get_calendar_service,
+    create_habit_reminder,
+    delete_habit_reminder,
+    get_upcoming_reminders
+)
+
 from datetime import datetime, date, timedelta
 import calendar
 
@@ -73,6 +83,13 @@ class VerifyOTPRequest(BaseModel):
 
 class ResendOTPRequest(BaseModel):
     email: EmailStr
+    
+class CalendarCallbackRequest(BaseModel):
+    code: str
+
+class CreateCalendarEventRequest(BaseModel):
+    habit_id: int
+    start_date: Optional[str] = None
 
 used_codes = set()
 
@@ -1038,3 +1055,137 @@ async def get_monthly_analysis(
         import traceback
         traceback.print_exc()
         raise HTTPException(500, f"Failed to fetch analysis: {str(e)}")
+    
+@app.get("/calendar/auth-url")
+async def get_calendar_authorization_url(user: User = Depends(get_current_user)):
+    """Get Google Calendar authorization URL"""
+    try:
+        auth_url = get_calendar_auth_url(state=str(user.id))
+        return {"auth_url": auth_url}
+    except Exception as e:
+        logging.error(f"Error getting calendar auth URL: {str(e)}")
+        raise HTTPException(500, f"Failed to get authorization URL: {str(e)}")
+
+
+@app.post("/calendar/callback")
+async def calendar_oauth_callback(
+    request: CalendarCallbackRequest,
+    user: User = Depends(get_current_user)
+):
+    """Handle Google Calendar OAuth callback"""
+    try:
+        tokens = exchange_code_for_tokens(request.code)
+        
+        # Store tokens in database
+        supabase.table('users').update({
+            "calendar_tokens": tokens
+        }).eq('id', user.id).execute()
+        
+        logging.info(f"✅ Calendar connected for user {user.email}")
+        return {"success": True, "message": "Calendar connected successfully!"}
+    except Exception as e:
+        logging.error(f"Error in calendar callback: {str(e)}")
+        raise HTTPException(500, f"Failed to connect calendar: {str(e)}")
+
+
+@app.post("/calendar/sync-habits")
+async def sync_habits_to_calendar(user: User = Depends(get_current_user)):
+    """Sync all user habits to Google Calendar"""
+    try:
+        # Get user's calendar tokens
+        user_data = supabase.table('users').select('calendar_tokens').eq('id', user.id).single().execute()
+        
+        if not user_data.data or not user_data.data.get('calendar_tokens'):
+            raise HTTPException(400, "Calendar not connected. Please connect your Google Calendar first.")
+        
+        tokens = user_data.data['calendar_tokens']
+        service = get_calendar_service(tokens)
+        
+        # Get user's habits
+        habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        habits = habits_response.data if habits_response.data else []
+        
+        results = []
+        for habit in habits:
+            result = create_habit_reminder(
+                service=service,
+                habit_name=habit['name'],
+                habit_time=habit['time'],
+                habit_why=habit['why']
+            )
+            
+            if result['success']:
+                # Store event ID in database
+                supabase.table('habits').update({
+                    "calendar_event_id": result['event_id']
+                }).eq('id', habit['id']).execute()
+            
+            results.append({
+                "habit": habit['name'],
+                **result
+            })
+        
+        return {
+            "success": True,
+            "message": f"Synced {len(habits)} habits to calendar",
+            "results": results
+        }
+    except Exception as e:
+        logging.error(f"Error syncing habits to calendar: {str(e)}")
+        raise HTTPException(500, f"Failed to sync habits: {str(e)}")
+
+
+@app.get("/calendar/status")
+async def get_calendar_status(user: User = Depends(get_current_user)):
+    """Check if calendar is connected"""
+    try:
+        user_data = supabase.table('users').select('calendar_tokens').eq('id', user.id).single().execute()
+        
+        is_connected = bool(user_data.data and user_data.data.get('calendar_tokens'))
+        
+        return {
+            "connected": is_connected,
+            "message": "Calendar is connected" if is_connected else "Calendar not connected"
+        }
+    except Exception as e:
+        logging.error(f"Error checking calendar status: {str(e)}")
+        return {"connected": False, "message": "Error checking status"}
+
+
+@app.get("/calendar/upcoming")
+async def get_upcoming_calendar_events(user: User = Depends(get_current_user)):
+    """Get upcoming habit reminders from calendar"""
+    try:
+        user_data = supabase.table('users').select('calendar_tokens').eq('id', user.id).single().execute()
+        
+        if not user_data.data or not user_data.data.get('calendar_tokens'):
+            return {"events": [], "message": "Calendar not connected"}
+        
+        tokens = user_data.data['calendar_tokens']
+        service = get_calendar_service(tokens)
+        
+        events = get_upcoming_reminders(service)
+        
+        return {"events": events}
+    except Exception as e:
+        logging.error(f"Error fetching upcoming events: {str(e)}")
+        return {"events": [], "error": str(e)}
+
+
+@app.delete("/calendar/disconnect")
+async def disconnect_calendar(user: User = Depends(get_current_user)):
+    """Disconnect Google Calendar"""
+    try:
+        supabase.table('users').update({
+            "calendar_tokens": None
+        }).eq('id', user.id).execute()
+        
+        # Also clear event IDs from habits
+        supabase.table('habits').update({
+            "calendar_event_id": None
+        }).eq('user_id', user.id).execute()
+        
+        return {"success": True, "message": "Calendar disconnected"}
+    except Exception as e:
+        logging.error(f"Error disconnecting calendar: {str(e)}")
+        raise HTTPException(500, f"Failed to disconnect: {str(e)}")
