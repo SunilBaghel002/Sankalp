@@ -16,6 +16,7 @@ import RouteTitle from "./components/RouteTitle";
 import AnalysisPage from "./pages/Analysis";
 import ImprovePage from "./pages/ImprovePage";
 import CalendarCallbackPage from "./pages/CalendarCallbackPage";
+import SettingsPage from "./pages/SettingsPage";
 
 // Page titles configuration
 const pageTitles: Record<string, string> = {
@@ -113,6 +114,14 @@ function App() {
           element={
             <ProtectedRoute requiresDeposit={true}>
               <SuccessPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute requiresDeposit={true}>
+              <SettingsPage />
             </ProtectedRoute>
           }
         />

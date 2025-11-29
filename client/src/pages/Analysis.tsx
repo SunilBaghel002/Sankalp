@@ -21,6 +21,9 @@ import {
     LogOut,
     Settings,
     Home,
+    Sparkles,
+    Sun,
+    Sunrise,
 } from "lucide-react";
 
 interface ThoughtData {
@@ -74,6 +77,17 @@ const AnalysisPage: React.FC = () => {
     const month = currentDate.getMonth() + 1;
     const monthName = currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
+    // Calculate stats
+    const totalThoughts = thoughts.length;
+    const avgSleepHours = sleepRecords.length > 0
+        ? (sleepRecords.reduce((acc, s) => acc + s.sleep_hours, 0) / sleepRecords.length).toFixed(1)
+        : 0;
+    const perfectDays = habitCompletions.filter(d => d.all_completed).length;
+    const completionRate = habitCompletions.length > 0
+        ? Math.round((habitCompletions.reduce((acc, d) => acc + d.completed_count, 0) /
+            (habitCompletions.length * (habits.length || 1))) * 100)
+        : 0;
+
     // Load monthly analysis data
     useEffect(() => {
         const loadAnalysis = async () => {
@@ -110,12 +124,20 @@ const AnalysisPage: React.FC = () => {
     };
 
     const goToNextMonth = () => {
-        setCurrentDate(new Date(year, month, 1));
+        const today = new Date();
+        const nextMonth = new Date(year, month, 1);
+        if (nextMonth <= today) {
+            setCurrentDate(nextMonth);
+        }
     };
 
     const formatDate = (dateStr: string) => {
         const date = new Date(dateStr);
         return date.toLocaleDateString("en-US", { weekday: "short", day: "numeric" });
+    };
+
+    const getDayNumber = (dateStr: string) => {
+        return new Date(dateStr).getDate();
     };
 
     const handleLogout = () => {
@@ -126,10 +148,25 @@ const AnalysisPage: React.FC = () => {
     // Get max sleep hours for scaling the chart
     const maxSleepHours = Math.max(...sleepRecords.map(r => r.sleep_hours), 10);
 
+    // Get sleep quality color
+    const getSleepQualityColor = (hours: number) => {
+        if (hours >= 7 && hours <= 9) return "bg-green-500";
+        if (hours >= 6) return "bg-yellow-500";
+        if (hours > 0) return "bg-red-500";
+        return "bg-slate-600";
+    };
+
+    const getSleepQualityText = (hours: number) => {
+        if (hours >= 7 && hours <= 9) return { label: "Optimal", color: "text-green-400" };
+        if (hours >= 6) return { label: "Fair", color: "text-yellow-400" };
+        if (hours > 0) return { label: "Poor", color: "text-red-400" };
+        return { label: "Not tracked", color: "text-slate-500" };
+    };
+
     const tabs = [
-        { id: "thoughts", label: "Thoughts", icon: Lightbulb, color: "text-purple-400" },
-        { id: "sleep", label: "Sleep", icon: Moon, color: "text-indigo-400" },
-        { id: "habits", label: "Habits", icon: CheckSquare, color: "text-green-400" },
+        { id: "thoughts", label: "Thoughts", icon: Lightbulb, color: "text-purple-400", bg: "bg-purple-500" },
+        { id: "sleep", label: "Sleep", icon: Moon, color: "text-indigo-400", bg: "bg-indigo-500" },
+        { id: "habits", label: "Habits", icon: CheckSquare, color: "text-green-400", bg: "bg-green-500" },
     ];
 
     if (loading) {
@@ -148,7 +185,7 @@ const AnalysisPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 text-white">
+        <div className="min-h-screen bg-slate-950 text-white pb-20">
             {/* Header */}
             <div className="sticky top-0 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 z-40">
                 <div className="max-w-7xl mx-auto px-4 py-4">
@@ -164,7 +201,7 @@ const AnalysisPage: React.FC = () => {
                             </button>
                             <div className="flex items-center gap-3">
                                 <BarChart3 className="w-8 h-8 text-purple-500" />
-                                <span className="text-xl font-bold">Analysis</span>
+                                <span className="text-xl font-bold hidden sm:block">Monthly Analysis</span>
                             </div>
                         </div>
 
@@ -184,7 +221,7 @@ const AnalysisPage: React.FC = () => {
                                         initial={{ opacity: 0, y: -10 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         exit={{ opacity: 0, y: -10 }}
-                                        className="absolute right-0 mt-2 w-56 bg-slate-800 rounded-xl border border-slate-700 shadow-2xl overflow-hidden"
+                                        className="absolute right-0 mt-2 w-56 bg-slate-800 rounded-xl border border-slate-700 shadow-2xl overflow-hidden z-50"
                                     >
                                         <button
                                             onClick={() => navigate("/daily")}
@@ -199,6 +236,20 @@ const AnalysisPage: React.FC = () => {
                                         >
                                             <TrendingUp className="w-5 h-5 text-blue-400" />
                                             <span>Insights</span>
+                                        </button>
+                                        <button
+                                            onClick={() => navigate("/improve")}
+                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
+                                        >
+                                            <Sparkles className="w-5 h-5 text-yellow-400" />
+                                            <span>Improve</span>
+                                        </button>
+                                        <button
+                                            onClick={() => navigate("/settings")}
+                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
+                                        >
+                                            <Settings className="w-5 h-5 text-slate-400" />
+                                            <span>Settings</span>
                                         </button>
                                         <div className="border-t border-slate-700">
                                             <button
@@ -218,9 +269,9 @@ const AnalysisPage: React.FC = () => {
             </div>
 
             {/* Main Content */}
-            <div className="max-w-7xl mx-auto px-4 py-8">
+            <div className="max-w-7xl mx-auto px-4 py-6">
                 {/* Month Navigation */}
-                <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center justify-between mb-6">
                     <button
                         onClick={goToPreviousMonth}
                         className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl border border-slate-700 transition-all"
@@ -231,30 +282,85 @@ const AnalysisPage: React.FC = () => {
 
                     <div className="flex items-center gap-3">
                         <Calendar className="w-6 h-6 text-orange-500" />
-                        <h1 className="text-2xl font-bold">{monthName}</h1>
+                        <h1 className="text-xl sm:text-2xl font-bold">{monthName}</h1>
                     </div>
 
                     <button
                         onClick={goToNextMonth}
-                        className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl border border-slate-700 transition-all"
+                        disabled={new Date(year, month, 1) > new Date()}
+                        className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-xl border border-slate-700 transition-all"
                     >
                         <span className="hidden sm:block">Next</span>
                         <ChevronRight className="w-5 h-5" />
                     </button>
                 </div>
 
+                {/* Stats Overview */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-slate-800 rounded-xl p-4 border border-slate-700"
+                    >
+                        <div className="flex items-center gap-2 mb-2">
+                            <Lightbulb className="w-5 h-5 text-purple-400" />
+                            <span className="text-sm text-slate-400">Thoughts</span>
+                        </div>
+                        <div className="text-2xl font-bold text-purple-400">{totalThoughts}</div>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="bg-slate-800 rounded-xl p-4 border border-slate-700"
+                    >
+                        <div className="flex items-center gap-2 mb-2">
+                            <Moon className="w-5 h-5 text-indigo-400" />
+                            <span className="text-sm text-slate-400">Avg Sleep</span>
+                        </div>
+                        <div className="text-2xl font-bold text-indigo-400">{avgSleepHours}h</div>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="bg-slate-800 rounded-xl p-4 border border-slate-700"
+                    >
+                        <div className="flex items-center gap-2 mb-2">
+                            <Check className="w-5 h-5 text-green-400" />
+                            <span className="text-sm text-slate-400">Perfect Days</span>
+                        </div>
+                        <div className="text-2xl font-bold text-green-400">{perfectDays}</div>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 }}
+                        className="bg-slate-800 rounded-xl p-4 border border-slate-700"
+                    >
+                        <div className="flex items-center gap-2 mb-2">
+                            <TrendingUp className="w-5 h-5 text-orange-400" />
+                            <span className="text-sm text-slate-400">Completion</span>
+                        </div>
+                        <div className="text-2xl font-bold text-orange-400">{completionRate}%</div>
+                    </motion.div>
+                </div>
+
                 {/* Tabs */}
-                <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
+                <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as any)}
-                            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all whitespace-nowrap ${activeTab === tab.id
-                                    ? "bg-slate-800 border-2 border-orange-500"
-                                    : "bg-slate-800/50 border border-slate-700 hover:border-slate-600"
+                            className={`flex items-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all whitespace-nowrap ${activeTab === tab.id
+                                    ? `${tab.bg} text-white`
+                                    : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
                                 }`}
                         >
-                            <tab.icon className={`w-5 h-5 ${tab.color}`} />
+                            <tab.icon className="w-5 h-5" />
                             <span>{tab.label}</span>
                         </button>
                     ))}
@@ -271,44 +377,54 @@ const AnalysisPage: React.FC = () => {
                             exit={{ opacity: 0, y: -20 }}
                             className="space-y-4"
                         >
-                            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-                                <div className="grid grid-cols-[120px_1fr] sm:grid-cols-[150px_1fr] divide-x divide-slate-700">
-                                    {/* Header */}
-                                    <div className="bg-slate-900 p-4 font-semibold text-slate-400">
-                                        Date
-                                    </div>
-                                    <div className="bg-slate-900 p-4 font-semibold text-slate-400">
-                                        Thought
-                                    </div>
-
-                                    {/* Data Rows */}
-                                    {habitCompletions.map((day) => {
+                            {habitCompletions.length > 0 ? (
+                                <div className="space-y-3">
+                                    {habitCompletions.map((day, index) => {
                                         const thought = thoughts.find(t => t.date === day.date);
+                                        const isToday = day.date === new Date().toISOString().split("T")[0];
+
                                         return (
-                                            <React.Fragment key={day.date}>
-                                                <div className="p-4 border-t border-slate-700 flex items-center gap-2">
-                                                    <span className="font-medium">{formatDate(day.date)}</span>
-                                                </div>
-                                                <div className="p-4 border-t border-slate-700">
-                                                    {thought ? (
-                                                        <div className="flex items-start gap-3">
-                                                            <Lightbulb className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
-                                                            <p className="text-slate-300">{thought.thought}</p>
+                                            <motion.div
+                                                key={day.date}
+                                                initial={{ opacity: 0, x: -20 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                transition={{ delay: index * 0.02 }}
+                                                className={`bg-slate-800 rounded-xl p-4 border ${isToday ? "border-purple-500" : "border-slate-700"
+                                                    }`}
+                                            >
+                                                <div className="flex items-start gap-4">
+                                                    <div className={`p-3 rounded-lg min-w-[70px] text-center ${thought ? "bg-purple-500/20" : "bg-slate-700/50"
+                                                        }`}>
+                                                        <div className="text-2xl font-bold">{getDayNumber(day.date)}</div>
+                                                        <div className="text-xs text-slate-400">
+                                                            {new Date(day.date).toLocaleDateString("en-US", { weekday: "short" })}
                                                         </div>
-                                                    ) : (
-                                                        <span className="text-slate-500 italic">No thought recorded</span>
-                                                    )}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        {thought ? (
+                                                            <>
+                                                                <div className="flex items-center gap-2 mb-2">
+                                                                    <Lightbulb className="w-4 h-4 text-purple-400" />
+                                                                    <span className="text-xs text-purple-400 font-medium">Daily Thought</span>
+                                                                </div>
+                                                                <p className="text-slate-300 leading-relaxed">"{thought.thought}"</p>
+                                                            </>
+                                                        ) : (
+                                                            <div className="flex items-center gap-2 text-slate-500 italic">
+                                                                <Brain className="w-4 h-4" />
+                                                                <span>No thought recorded</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </React.Fragment>
+                                            </motion.div>
                                         );
                                     })}
                                 </div>
-                            </div>
-
-                            {thoughts.length === 0 && (
-                                <div className="text-center py-12">
+                            ) : (
+                                <div className="text-center py-12 bg-slate-800 rounded-2xl border border-slate-700">
                                     <Brain className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                                    <p className="text-slate-400">No thoughts recorded this month</p>
+                                    <p className="text-slate-400 text-lg">No data for this month</p>
                                     <p className="text-sm text-slate-500 mt-2">
                                         Start writing your daily thoughts to see them here!
                                     </p>
@@ -333,129 +449,132 @@ const AnalysisPage: React.FC = () => {
                                     Sleep Hours Chart
                                 </h3>
 
-                                <div className="relative h-64 md:h-80">
+                                <div className="relative h-64 md:h-72">
                                     {/* Y-axis labels */}
-                                    <div className="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between text-xs text-slate-500">
-                                        <span>{maxSleepHours}h</span>
-                                        <span>{Math.round(maxSleepHours * 0.75)}h</span>
-                                        <span>{Math.round(maxSleepHours * 0.5)}h</span>
-                                        <span>{Math.round(maxSleepHours * 0.25)}h</span>
+                                    <div className="absolute left-0 top-0 bottom-8 w-10 flex flex-col justify-between text-xs text-slate-500">
+                                        <span>12h</span>
+                                        <span>9h</span>
+                                        <span>6h</span>
+                                        <span>3h</span>
                                         <span>0h</span>
                                     </div>
 
                                     {/* Chart area */}
-                                    <div className="absolute left-14 right-0 top-0 bottom-8 flex items-end gap-1 overflow-x-auto pb-2">
-                                        {habitCompletions.map((day) => {
+                                    <div className="absolute left-12 right-0 top-0 bottom-8 flex items-end gap-1 overflow-x-auto">
+                                        {habitCompletions.map((day, idx) => {
                                             const sleep = sleepRecords.find(s => s.date === day.date);
                                             const hours = sleep?.sleep_hours || 0;
-                                            const heightPercent = (hours / maxSleepHours) * 100;
-                                            const date = new Date(day.date);
-
-                                            // Color based on sleep quality
-                                            let barColor = "bg-slate-600";
-                                            if (hours >= 7 && hours <= 9) barColor = "bg-green-500";
-                                            else if (hours >= 5) barColor = "bg-yellow-500";
-                                            else if (hours > 0) barColor = "bg-red-500";
+                                            const heightPercent = (hours / 12) * 100;
+                                            const barColor = getSleepQualityColor(hours);
 
                                             return (
-                                                <div key={day.date} className="flex-1 min-w-[20px] flex flex-col items-center">
-                                                    <motion.div
-                                                        initial={{ height: 0 }}
-                                                        animate={{ height: `${heightPercent}%` }}
-                                                        transition={{ duration: 0.5, delay: 0.02 * date.getDate() }}
-                                                        className={`w-full ${barColor} rounded-t-md relative group cursor-pointer`}
-                                                        style={{ minHeight: hours > 0 ? "4px" : "0" }}
-                                                    >
-                                                        {/* Tooltip */}
-                                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
-                                                            <div className="bg-slate-900 px-3 py-2 rounded-lg text-xs whitespace-nowrap border border-slate-700">
-                                                                <div className="font-semibold">{hours}h</div>
-                                                                {sleep && (
-                                                                    <div className="text-slate-400">
-                                                                        {sleep.sleep_time} → {sleep.wake_time}
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                                                <motion.div
+                                                    key={day.date}
+                                                    initial={{ height: 0 }}
+                                                    animate={{ height: `${Math.min(heightPercent, 100)}%` }}
+                                                    transition={{ duration: 0.5, delay: idx * 0.02 }}
+                                                    className={`flex-1 min-w-[16px] ${barColor} rounded-t relative group cursor-pointer`}
+                                                    style={{ minHeight: hours > 0 ? "8px" : "2px" }}
+                                                >
+                                                    {/* Tooltip */}
+                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20">
+                                                        <div className="bg-slate-900 px-3 py-2 rounded-lg text-xs whitespace-nowrap border border-slate-700 shadow-xl">
+                                                            <div className="font-bold text-center mb-1">{getDayNumber(day.date)}</div>
+                                                            <div className="font-semibold">{hours > 0 ? `${hours}h` : "No data"}</div>
+                                                            {sleep && (
+                                                                <div className="text-slate-400 flex items-center gap-1">
+                                                                    <Moon className="w-3 h-3" /> {sleep.sleep_time}
+                                                                    <span className="mx-1">→</span>
+                                                                    <Sun className="w-3 h-3" /> {sleep.wake_time}
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    </motion.div>
-                                                    <span className="text-xs text-slate-500 mt-2 rotate-45 origin-left">
-                                                        {date.getDate()}
-                                                    </span>
-                                                </div>
+                                                    </div>
+                                                </motion.div>
                                             );
                                         })}
                                     </div>
 
                                     {/* Reference lines */}
-                                    <div className="absolute left-14 right-0 top-0 bottom-8 pointer-events-none">
-                                        <div className="absolute w-full border-t border-dashed border-green-500/30" style={{ bottom: `${(7 / maxSleepHours) * 100}%` }}>
-                                            <span className="absolute right-0 -top-3 text-xs text-green-500">7h</span>
+                                    <div className="absolute left-12 right-0 top-0 bottom-8 pointer-events-none">
+                                        <div className="absolute w-full border-t border-dashed border-green-500/30" style={{ bottom: `${(7 / 12) * 100}%` }}>
+                                            <span className="absolute right-0 -top-3 text-xs text-green-500 bg-slate-800 px-1">7h</span>
                                         </div>
-                                        <div className="absolute w-full border-t border-dashed border-green-500/30" style={{ bottom: `${(9 / maxSleepHours) * 100}%` }}>
-                                            <span className="absolute right-0 -top-3 text-xs text-green-500">9h</span>
+                                        <div className="absolute w-full border-t border-dashed border-green-500/30" style={{ bottom: `${(9 / 12) * 100}%` }}>
+                                            <span className="absolute right-0 -top-3 text-xs text-green-500 bg-slate-800 px-1">9h</span>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Legend */}
-                                <div className="flex flex-wrap gap-4 mt-6 justify-center">
+                                <div className="flex flex-wrap gap-4 mt-6 justify-center text-sm">
                                     <div className="flex items-center gap-2">
                                         <div className="w-4 h-4 bg-green-500 rounded"></div>
-                                        <span className="text-sm text-slate-400">Optimal (7-9h)</span>
+                                        <span className="text-slate-400">Optimal (7-9h)</span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <div className="w-4 h-4 bg-yellow-500 rounded"></div>
-                                        <span className="text-sm text-slate-400">Fair (5-7h)</span>
+                                        <span className="text-slate-400">Fair (6-7h)</span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <div className="w-4 h-4 bg-red-500 rounded"></div>
-                                        <span className="text-sm text-slate-400">Poor (&lt;5h)</span>
+                                        <span className="text-slate-400">Poor (&lt;6h)</span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <div className="w-4 h-4 bg-slate-600 rounded"></div>
-                                        <span className="text-sm text-slate-400">Not tracked</span>
+                                        <span className="text-slate-400">No data</span>
                                     </div>
                                 </div>
                             </div>
 
                             {/* Sleep Data Grid */}
-                            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-                                <div className="grid grid-cols-[120px_1fr_1fr_100px] sm:grid-cols-[150px_1fr_1fr_120px] divide-x divide-slate-700">
-                                    {/* Header */}
-                                    <div className="bg-slate-900 p-4 font-semibold text-slate-400">Date</div>
-                                    <div className="bg-slate-900 p-4 font-semibold text-slate-400">Bedtime</div>
-                                    <div className="bg-slate-900 p-4 font-semibold text-slate-400">Wake Up</div>
-                                    <div className="bg-slate-900 p-4 font-semibold text-slate-400">Hours</div>
+                            <div className="space-y-3">
+                                {habitCompletions.map((day, index) => {
+                                    const sleep = sleepRecords.find(s => s.date === day.date);
+                                    const quality = getSleepQualityText(sleep?.sleep_hours || 0);
+                                    const isToday = day.date === new Date().toISOString().split("T")[0];
 
-                                    {/* Data Rows */}
-                                    {habitCompletions.map((day) => {
-                                        const sleep = sleepRecords.find(s => s.date === day.date);
-                                        return (
-                                            <React.Fragment key={day.date}>
-                                                <div className="p-4 border-t border-slate-700 font-medium">
-                                                    {formatDate(day.date)}
+                                    return (
+                                        <motion.div
+                                            key={day.date}
+                                            initial={{ opacity: 0, x: -20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: index * 0.02 }}
+                                            className={`bg-slate-800 rounded-xl p-4 border ${isToday ? "border-indigo-500" : "border-slate-700"
+                                                }`}
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className={`p-3 rounded-lg min-w-[70px] text-center ${sleep ? "bg-indigo-500/20" : "bg-slate-700/50"
+                                                    }`}>
+                                                    <div className="text-2xl font-bold">{getDayNumber(day.date)}</div>
+                                                    <div className="text-xs text-slate-400">
+                                                        {new Date(day.date).toLocaleDateString("en-US", { weekday: "short" })}
+                                                    </div>
                                                 </div>
-                                                <div className="p-4 border-t border-slate-700">
-                                                    {sleep?.sleep_time || <span className="text-slate-500">--</span>}
-                                                </div>
-                                                <div className="p-4 border-t border-slate-700">
-                                                    {sleep?.wake_time || <span className="text-slate-500">--</span>}
-                                                </div>
-                                                <div className="p-4 border-t border-slate-700">
-                                                    {sleep ? (
-                                                        <span className={`font-semibold ${sleep.sleep_hours >= 7 ? "text-green-400" :
-                                                                sleep.sleep_hours >= 5 ? "text-yellow-400" : "text-red-400"
-                                                            }`}>
-                                                            {sleep.sleep_hours}h
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-500">--</span>
-                                                    )}
-                                                </div>
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                </div>
+
+                                                {sleep ? (
+                                                    <div className="flex-1 grid grid-cols-3 gap-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <Moon className="w-4 h-4 text-indigo-400" />
+                                                            <span className="text-slate-300">{sleep.sleep_time}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <Sunrise className="w-4 h-4 text-yellow-400" />
+                                                            <span className="text-slate-300">{sleep.wake_time}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <Clock className="w-4 h-4 text-slate-400" />
+                                                            <span className={`font-bold ${quality.color}`}>{sleep.sleep_hours}h</span>
+                                                            <span className={`text-xs ${quality.color}`}>({quality.label})</span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-slate-500 italic">No sleep data recorded</div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    );
+                                })}
                             </div>
                         </motion.div>
                     )}
@@ -467,109 +586,162 @@ const AnalysisPage: React.FC = () => {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -20 }}
-                            className="space-y-4"
+                            className="space-y-6"
                         >
-                            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-x-auto">
-                                <table className="w-full">
-                                    <thead>
-                                        <tr className="bg-slate-900">
-                                            <th className="p-4 text-left font-semibold text-slate-400 sticky left-0 bg-slate-900 z-10">
-                                                Date
-                                            </th>
-                                            {habits.map((habit) => (
-                                                <th key={habit.id} className="p-4 text-center font-semibold text-slate-400 min-w-[100px]">
-                                                    <div className="truncate max-w-[120px]" title={habit.name}>
-                                                        {habit.name}
+                            {/* Habit Grid */}
+                            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                                {/* Header */}
+                                <div className="bg-slate-900 p-4 border-b border-slate-700">
+                                    <div className="grid grid-cols-[80px_1fr_100px] gap-4 font-semibold text-slate-400">
+                                        <div>Date</div>
+                                        <div>Habits</div>
+                                        <div className="text-center">Status</div>
+                                    </div>
+                                </div>
+
+                                {/* Data Rows */}
+                                <div className="max-h-[500px] overflow-y-auto">
+                                    {habitCompletions.map((day, index) => {
+                                        const isToday = day.date === new Date().toISOString().split("T")[0];
+
+                                        return (
+                                            <motion.div
+                                                key={day.date}
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                transition={{ delay: index * 0.02 }}
+                                                className={`grid grid-cols-[80px_1fr_100px] gap-4 p-4 border-b border-slate-700/50 ${isToday ? "bg-green-900/10" : ""
+                                                    }`}
+                                            >
+                                                <div className="font-medium">
+                                                    <div className="text-lg">{getDayNumber(day.date)}</div>
+                                                    <div className="text-xs text-slate-500">
+                                                        {new Date(day.date).toLocaleDateString("en-US", { weekday: "short" })}
                                                     </div>
-                                                </th>
-                                            ))}
-                                            <th className="p-4 text-center font-semibold text-slate-400">
-                                                Status
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {habitCompletions.map((day) => (
-                                            <tr key={day.date} className="border-t border-slate-700">
-                                                <td className="p-4 font-medium sticky left-0 bg-slate-800 z-10">
-                                                    {formatDate(day.date)}
-                                                </td>
-                                                {habits.map((habit) => {
-                                                    const completed = day.habits[habit.id];
-                                                    return (
-                                                        <td key={habit.id} className="p-4 text-center">
-                                                            {completed ? (
-                                                                <motion.div
-                                                                    initial={{ scale: 0 }}
-                                                                    animate={{ scale: 1 }}
-                                                                    className="inline-flex items-center justify-center w-8 h-8 bg-green-500/20 rounded-lg"
-                                                                >
-                                                                    <Check className="w-5 h-5 text-green-500" />
-                                                                </motion.div>
-                                                            ) : (
-                                                                <div className="inline-flex items-center justify-center w-8 h-8 bg-red-500/20 rounded-lg">
-                                                                    <X className="w-5 h-5 text-red-500" />
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                    );
-                                                })}
-                                                <td className="p-4 text-center">
+                                                </div>
+
+                                                <div className="flex flex-wrap gap-2">
+                                                    {habits.map((habit) => {
+                                                        const completed = day.habits[habit.id];
+                                                        return (
+                                                            <div
+                                                                key={habit.id}
+                                                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${completed
+                                                                        ? "bg-green-500/20 text-green-400"
+                                                                        : "bg-slate-700/50 text-slate-500"
+                                                                    }`}
+                                                            >
+                                                                {completed ? (
+                                                                    <Check className="w-4 h-4" />
+                                                                ) : (
+                                                                    <X className="w-4 h-4" />
+                                                                )}
+                                                                <span className="truncate max-w-[100px]">{habit.name}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                <div className="flex items-center justify-center">
                                                     {day.all_completed ? (
-                                                        <span className="inline-flex items-center gap-1 bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
+                                                        <span className="flex items-center gap-1 bg-green-500/20 text-green-400 px-3 py-1.5 rounded-full text-sm font-medium">
                                                             <Check className="w-4 h-4" />
-                                                            Complete
+                                                            100%
                                                         </span>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1 bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full text-sm">
-                                                            {day.completed_count}/{day.total_habits}
+                                                        <span className="flex items-center gap-1 bg-orange-500/20 text-orange-400 px-3 py-1.5 rounded-full text-sm font-medium">
+                                                            {Math.round((day.completed_count / day.total_habits) * 100)}%
                                                         </span>
                                                     )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                                </div>
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
                             </div>
 
                             {/* Summary Stats */}
                             <div className="grid sm:grid-cols-3 gap-4">
-                                <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    className="bg-gradient-to-br from-green-900/50 to-green-800/30 rounded-xl p-6 border border-green-500/30"
+                                >
                                     <div className="flex items-center gap-3 mb-2">
                                         <Check className="w-6 h-6 text-green-500" />
-                                        <span className="text-slate-400">Perfect Days</span>
+                                        <span className="text-slate-300">Perfect Days</span>
                                     </div>
-                                    <div className="text-3xl font-bold text-green-400">
-                                        {habitCompletions.filter(d => d.all_completed).length}
-                                    </div>
-                                </div>
-                                <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+                                    <div className="text-4xl font-bold text-green-400">{perfectDays}</div>
+                                    <div className="text-sm text-slate-400 mt-1">out of {habitCompletions.length} days</div>
+                                </motion.div>
+
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: 0.1 }}
+                                    className="bg-gradient-to-br from-blue-900/50 to-blue-800/30 rounded-xl p-6 border border-blue-500/30"
+                                >
                                     <div className="flex items-center gap-3 mb-2">
                                         <TrendingUp className="w-6 h-6 text-blue-500" />
-                                        <span className="text-slate-400">Completion Rate</span>
+                                        <span className="text-slate-300">Completion Rate</span>
                                     </div>
-                                    <div className="text-3xl font-bold text-blue-400">
-                                        {habitCompletions.length > 0 ? (
-                                            Math.round(
-                                                (habitCompletions.reduce((acc, d) => acc + d.completed_count, 0) /
-                                                    (habitCompletions.length * (habits.length || 1))) * 100
-                                            )
-                                        ) : 0}%
-                                    </div>
-                                </div>
-                                <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+                                    <div className="text-4xl font-bold text-blue-400">{completionRate}%</div>
+                                    <div className="text-sm text-slate-400 mt-1">average daily</div>
+                                </motion.div>
+
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: 0.2 }}
+                                    className="bg-gradient-to-br from-orange-900/50 to-orange-800/30 rounded-xl p-6 border border-orange-500/30"
+                                >
                                     <div className="flex items-center gap-3 mb-2">
                                         <Flame className="w-6 h-6 text-orange-500" />
-                                        <span className="text-slate-400">Total Check-ins</span>
+                                        <span className="text-slate-300">Total Check-ins</span>
                                     </div>
-                                    <div className="text-3xl font-bold text-orange-400">
+                                    <div className="text-4xl font-bold text-orange-400">
                                         {habitCompletions.reduce((acc, d) => acc + d.completed_count, 0)}
                                     </div>
-                                </div>
+                                    <div className="text-sm text-slate-400 mt-1">this month</div>
+                                </motion.div>
                             </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
+            </div>
+
+            {/* Bottom Navigation */}
+            <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-4 z-50">
+                <div className="max-w-7xl mx-auto flex items-center justify-around">
+                    <button
+                        onClick={() => navigate("/daily")}
+                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
+                    >
+                        <Home className="w-6 h-6" />
+                        <span className="text-xs">Home</span>
+                    </button>
+                    <button
+                        onClick={() => navigate("/analysis")}
+                        className="flex flex-col items-center gap-1 text-orange-400"
+                    >
+                        <BarChart3 className="w-6 h-6" />
+                        <span className="text-xs font-semibold">Analysis</span>
+                    </button>
+                    <button
+                        onClick={() => navigate("/improve")}
+                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
+                    >
+                        <Sparkles className="w-6 h-6" />
+                        <span className="text-xs">Improve</span>
+                    </button>
+                    <button
+                        onClick={() => navigate("/insights")}
+                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
+                    >
+                        <TrendingUp className="w-6 h-6" />
+                        <span className="text-xs">Insights</span>
+                    </button>
+                </div>
             </div>
         </div>
     );
