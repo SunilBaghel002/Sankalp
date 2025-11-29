@@ -10,6 +10,7 @@ import {
     Bell,
     ExternalLink,
     RefreshCw,
+    AlertCircle,
 } from "lucide-react";
 
 interface CalendarSyncProps {
@@ -22,13 +23,22 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
     const [syncing, setSyncing] = useState(false);
     const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
     const [syncResults, setSyncResults] = useState<any[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         checkCalendarStatus();
+
+        // Check if we just came back from OAuth callback
+        const calendarJustConnected = localStorage.getItem("calendar_just_connected");
+        if (calendarJustConnected === "true") {
+            localStorage.removeItem("calendar_just_connected");
+            checkCalendarStatus();
+        }
     }, []);
 
     const checkCalendarStatus = async () => {
         try {
+            setError(null);
             const response = await fetch("http://localhost:8000/calendar/status", {
                 method: "GET",
                 credentials: "include",
@@ -44,6 +54,7 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
             }
         } catch (error) {
             console.error("Error checking calendar status:", error);
+            setError("Failed to check calendar status");
         } finally {
             setLoading(false);
         }
@@ -68,6 +79,8 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
     const connectCalendar = async () => {
         try {
             setLoading(true);
+            setError(null);
+
             const response = await fetch("http://localhost:8000/calendar/auth-url", {
                 method: "GET",
                 credentials: "include",
@@ -75,24 +88,19 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
 
             if (response.ok) {
                 const data = await response.json();
-                // Open Google OAuth in a popup
-                const popup = window.open(
-                    data.auth_url,
-                    "Google Calendar Authorization",
-                    "width=600,height=700,left=100,top=100"
-                );
 
-                // Listen for the popup to close or redirect
-                const checkPopup = setInterval(() => {
-                    if (popup?.closed) {
-                        clearInterval(checkPopup);
-                        checkCalendarStatus();
-                    }
-                }, 1000);
+                // Store current page to return to after OAuth
+                localStorage.setItem("calendar_return_url", window.location.pathname);
+
+                // Redirect directly to Google OAuth (not popup)
+                window.location.href = data.auth_url;
+            } else {
+                const errorData = await response.json();
+                setError(errorData.detail || "Failed to get authorization URL");
             }
         } catch (error) {
             console.error("Error connecting calendar:", error);
-        } finally {
+            setError("Failed to connect to calendar service");
             setLoading(false);
         }
     };
@@ -100,6 +108,8 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
     const disconnectCalendar = async () => {
         try {
             setLoading(true);
+            setError(null);
+
             const response = await fetch("http://localhost:8000/calendar/disconnect", {
                 method: "DELETE",
                 credentials: "include",
@@ -109,9 +119,12 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
                 setIsConnected(false);
                 setUpcomingEvents([]);
                 setSyncResults(null);
+            } else {
+                setError("Failed to disconnect calendar");
             }
         } catch (error) {
             console.error("Error disconnecting calendar:", error);
+            setError("Failed to disconnect calendar");
         } finally {
             setLoading(false);
         }
@@ -120,6 +133,9 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
     const syncHabits = async () => {
         try {
             setSyncing(true);
+            setError(null);
+            setSyncResults(null);
+
             const response = await fetch("http://localhost:8000/calendar/sync-habits", {
                 method: "POST",
                 credentials: "include",
@@ -130,9 +146,13 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
                 setSyncResults(data.results);
                 fetchUpcomingEvents();
                 onSyncComplete?.();
+            } else {
+                const errorData = await response.json();
+                setError(errorData.detail || "Failed to sync habits");
             }
         } catch (error) {
             console.error("Error syncing habits:", error);
+            setError("Failed to sync habits to calendar");
         } finally {
             setSyncing(false);
         }
@@ -178,6 +198,24 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
                 )}
             </div>
 
+            {/* Error Message */}
+            <AnimatePresence>
+                {error && (
+                    <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="mb-4 p-4 bg-red-900/30 border border-red-500/50 rounded-xl flex items-start gap-3"
+                    >
+                        <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                        <div>
+                            <p className="text-red-400 font-medium">Error</p>
+                            <p className="text-sm text-red-300">{error}</p>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {!isConnected ? (
                 <div className="space-y-4">
                     <div className="bg-slate-900/50 rounded-xl p-4">
@@ -187,15 +225,15 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
                         </h4>
                         <ul className="space-y-2 text-sm text-slate-400">
                             <li className="flex items-start gap-2">
-                                <Check className="w-4 h-4 text-green-400 mt-0.5" />
+                                <Check className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
                                 <span>Get automatic reminders at your scheduled habit times</span>
                             </li>
                             <li className="flex items-start gap-2">
-                                <Check className="w-4 h-4 text-green-400 mt-0.5" />
+                                <Check className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
                                 <span>Never miss a habit with popup notifications</span>
                             </li>
                             <li className="flex items-start gap-2">
-                                <Check className="w-4 h-4 text-green-400 mt-0.5" />
+                                <Check className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
                                 <span>Daily recurring events for 100 days</span>
                             </li>
                         </ul>
@@ -203,11 +241,20 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
 
                     <button
                         onClick={connectCalendar}
-                        className="w-full flex items-center justify-center gap-3 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold transition-all"
+                        disabled={loading}
+                        className="w-full flex items-center justify-center gap-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50 text-white px-6 py-3 rounded-xl font-semibold transition-all"
                     >
-                        <Link2 className="w-5 h-5" />
+                        {loading ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                            <Link2 className="w-5 h-5" />
+                        )}
                         Connect Google Calendar
                     </button>
+
+                    <p className="text-xs text-slate-500 text-center">
+                        You'll be redirected to Google to authorize access
+                    </p>
                 </div>
             ) : (
                 <div className="space-y-4">
@@ -239,17 +286,23 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
                                 exit={{ opacity: 0, height: 0 }}
                                 className="bg-slate-900/50 rounded-xl p-4"
                             >
-                                <h4 className="font-medium mb-3">Sync Results:</h4>
+                                <h4 className="font-medium mb-3 flex items-center gap-2">
+                                    <Check className="w-5 h-5 text-green-400" />
+                                    Sync Results
+                                </h4>
                                 <div className="space-y-2">
                                     {syncResults.map((result, index) => (
                                         <div
                                             key={index}
-                                            className={`flex items-center justify-between p-2 rounded-lg ${result.success ? "bg-green-900/30" : "bg-red-900/30"
+                                            className={`flex items-center justify-between p-3 rounded-lg ${result.success ? "bg-green-900/30" : "bg-red-900/30"
                                                 }`}
                                         >
                                             <span className="text-sm">{result.habit}</span>
                                             {result.success ? (
-                                                <Check className="w-4 h-4 text-green-400" />
+                                                <span className="flex items-center gap-1 text-green-400 text-sm">
+                                                    <Check className="w-4 h-4" />
+                                                    Synced
+                                                </span>
                                             ) : (
                                                 <span className="text-xs text-red-400">Failed</span>
                                             )}
@@ -265,28 +318,36 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
                         <div className="bg-slate-900/50 rounded-xl p-4">
                             <h4 className="font-medium mb-3 flex items-center gap-2">
                                 <Bell className="w-5 h-5 text-blue-400" />
-                                Upcoming Reminders
+                                Upcoming Reminders ({upcomingEvents.length})
                             </h4>
                             <div className="space-y-2 max-h-48 overflow-y-auto">
                                 {upcomingEvents.slice(0, 5).map((event, index) => (
                                     <div
                                         key={index}
-                                        className="flex items-center justify-between p-2 bg-slate-800 rounded-lg"
+                                        className="flex items-center justify-between p-3 bg-slate-800 rounded-lg"
                                     >
-                                        <div>
-                                            <p className="text-sm font-medium">{event.summary}</p>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium truncate">{event.summary}</p>
                                             <p className="text-xs text-slate-400">
-                                                {new Date(event.start).toLocaleString()}
+                                                {new Date(event.start).toLocaleString("en-IN", {
+                                                    weekday: "short",
+                                                    month: "short",
+                                                    day: "numeric",
+                                                    hour: "numeric",
+                                                    minute: "2-digit",
+                                                })}
                                             </p>
                                         </div>
-                                        <a
-                                            href={event.link}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-400 hover:text-blue-300"
-                                        >
-                                            <ExternalLink className="w-4 h-4" />
-                                        </a>
+                                        {event.link && (
+                                            <a
+                                                href={event.link}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors"
+                                            >
+                                                <ExternalLink className="w-4 h-4" />
+                                            </a>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -296,9 +357,14 @@ const CalendarSync: React.FC<CalendarSyncProps> = ({ onSyncComplete }) => {
                     {/* Disconnect Button */}
                     <button
                         onClick={disconnectCalendar}
-                        className="w-full flex items-center justify-center gap-3 bg-slate-700 hover:bg-slate-600 text-slate-300 px-6 py-3 rounded-xl font-medium transition-all"
+                        disabled={loading}
+                        className="w-full flex items-center justify-center gap-3 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/50 text-slate-300 px-6 py-3 rounded-xl font-medium transition-all"
                     >
-                        <Link2Off className="w-5 h-5" />
+                        {loading ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                            <Link2Off className="w-5 h-5" />
+                        )}
                         Disconnect Calendar
                     </button>
                 </div>
