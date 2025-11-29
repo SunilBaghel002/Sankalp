@@ -27,6 +27,16 @@ from google_calendar import (
     get_upcoming_reminders
 )
 
+from gemini_service import (
+    generate_motivational_quote,
+    generate_habit_tips,
+    generate_sleep_insights,
+    generate_daily_affirmation,
+    generate_thought_reflection,
+    generate_weekly_report,
+    chat_with_habit_coach
+)
+
 from datetime import datetime, date, timedelta
 import calendar
 
@@ -90,6 +100,13 @@ class CalendarCallbackRequest(BaseModel):
 class CreateCalendarEventRequest(BaseModel):
     habit_id: int
     start_date: Optional[str] = None
+    
+class ChatRequest(BaseModel):
+    message: str
+
+class ThoughtReflectionRequest(BaseModel):
+    thought: str
+    date: str
 
 used_codes = set()
 
@@ -1189,3 +1206,236 @@ async def disconnect_calendar(user: User = Depends(get_current_user)):
     except Exception as e:
         logging.error(f"Error disconnecting calendar: {str(e)}")
         raise HTTPException(500, f"Failed to disconnect: {str(e)}")
+
+@app.get("/ai/motivational-quote")
+async def get_motivational_quote(user: User = Depends(get_current_user)):
+    """Get personalized motivational quote"""
+    try:
+        # Get user stats
+        stats = await get_user_stats(user)
+        
+        # Get today's checkins
+        today = date.today().strftime('%Y-%m-%d')
+        checkins_response = supabase.table('checkins').select('*').eq(
+            'user_id', user.id
+        ).eq('date', today).execute()
+        
+        habits_completed = len([c for c in (checkins_response.data or []) if c['completed']])
+        
+        quote = await generate_motivational_quote(
+            user_name=user.name.split()[0] if user.name else "Friend",
+            current_streak=stats.get('current_streak', 0),
+            habits_completed_today=habits_completed,
+            total_habits=stats.get('total_habits', 5)
+        )
+        
+        return quote
+    except Exception as e:
+        logging.error(f"Error getting motivational quote: {str(e)}")
+        return {
+            "quote": "Every day is a new opportunity to build the life you want.",
+            "author": "Anonymous",
+            "personalized_message": "Keep going! You've got this! 💪"
+        }
+
+
+@app.get("/ai/habit-tips")
+async def get_habit_tips(user: User = Depends(get_current_user)):
+    """Get personalized habit tips"""
+    try:
+        # Get habits
+        habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        habits = habits_response.data or []
+        
+        # Get stats
+        stats = await get_user_stats(user)
+        completion_rate = (stats.get('total_completed_days', 0) / max(1, 100)) * 100
+        
+        tips = await generate_habit_tips(
+            habits=habits,
+            completion_rate=completion_rate
+        )
+        
+        return tips
+    except Exception as e:
+        logging.error(f"Error getting habit tips: {str(e)}")
+        return {
+            "tips": ["Start small", "Be consistent", "Track your progress"],
+            "focus_area": "consistency",
+            "weekly_challenge": "Complete all habits for 7 days!"
+        }
+
+
+@app.get("/ai/daily-affirmation")
+async def get_daily_affirmation(user: User = Depends(get_current_user)):
+    """Get daily affirmation"""
+    try:
+        stats = await get_user_stats(user)
+        day_number = stats.get('total_completed_days', 0) + 1
+        
+        affirmation = await generate_daily_affirmation(
+            user_name=user.name.split()[0] if user.name else "Champion",
+            day_number=day_number
+        )
+        
+        return {"affirmation": affirmation, "day": day_number}
+    except Exception as e:
+        logging.error(f"Error getting affirmation: {str(e)}")
+        return {
+            "affirmation": "Today is your day to shine! Make it count! ✨",
+            "day": 1
+        }
+
+
+@app.post("/ai/thought-reflection")
+async def get_thought_reflection(
+    request: ThoughtReflectionRequest,
+    user: User = Depends(get_current_user)
+):
+    """Get AI reflection on daily thought"""
+    try:
+        reflection = await generate_thought_reflection(
+            thought=request.thought,
+            date=request.date
+        )
+        return reflection
+    except Exception as e:
+        logging.error(f"Error getting thought reflection: {str(e)}")
+        return {
+            "reflection": "What a wonderful thought!",
+            "related_quote": "Positive thoughts lead to positive outcomes.",
+            "action_item": "Carry this thought with you today."
+        }
+
+
+@app.get("/ai/sleep-insights")
+async def get_sleep_insights(user: User = Depends(get_current_user)):
+    """Get AI insights about sleep patterns"""
+    try:
+        # Get sleep records
+        sleep_response = supabase.table('sleep_records').select('*').eq(
+            'user_id', user.id
+        ).order('date', desc=True).limit(30).execute()
+        
+        sleep_records = sleep_response.data or []
+        
+        if not sleep_records:
+            return {
+                "insight": "Start tracking your sleep to get personalized insights!",
+                "recommendation": "Aim for 7-8 hours of sleep each night.",
+                "correlation": "Good sleep is the foundation of successful habits."
+            }
+        
+        avg_sleep = sum(r.get('sleep_hours', 0) for r in sleep_records) / len(sleep_records)
+        
+        # Get habit stats
+        stats = await get_user_stats(user)
+        completion_rate = (stats.get('total_completed_days', 0) / max(1, 100)) * 100
+        
+        insights = await generate_sleep_insights(
+            average_sleep=round(avg_sleep, 1),
+            sleep_pattern=sleep_records[:7],
+            habit_completion_rate=completion_rate
+        )
+        
+        return insights
+    except Exception as e:
+        logging.error(f"Error getting sleep insights: {str(e)}")
+        return {
+            "insight": "Track your sleep consistently for better insights!",
+            "recommendation": "Maintain a regular sleep schedule.",
+            "correlation": "Quality sleep improves habit success."
+        }
+
+
+@app.get("/ai/weekly-report")
+async def get_weekly_report(user: User = Depends(get_current_user)):
+    """Get AI-generated weekly report"""
+    try:
+        # Get various data
+        habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        habits = habits_response.data or []
+        
+        # Get weekly sleep data
+        today = date.today()
+        week_ago = today - timedelta(days=7)
+        
+        sleep_response = supabase.table('sleep_records').select('*').eq(
+            'user_id', user.id
+        ).gte('date', week_ago.strftime('%Y-%m-%d')).execute()
+        
+        thoughts_response = supabase.table('daily_thoughts').select('thought').eq(
+            'user_id', user.id
+        ).gte('date', week_ago.strftime('%Y-%m-%d')).execute()
+        
+        # Calculate weekly stats
+        stats = await get_user_stats(user)
+        
+        # Count perfect days this week
+        perfect_days = 0
+        total_completion = 0
+        
+        for i in range(7):
+            check_date = (today - timedelta(days=i)).strftime('%Y-%m-%d')
+            checkins_response = supabase.table('checkins').select('*').eq(
+                'user_id', user.id
+            ).eq('date', check_date).execute()
+            
+            if checkins_response.data:
+                completed = len([c for c in checkins_response.data if c['completed']])
+                if completed == len(habits):
+                    perfect_days += 1
+                total_completion += (completed / max(len(habits), 1)) * 100
+        
+        weekly_stats = {
+            'perfect_days': perfect_days,
+            'avg_completion': round(total_completion / 7, 1),
+            'current_streak': stats.get('current_streak', 0)
+        }
+        
+        report = await generate_weekly_report(
+            user_name=user.name.split()[0] if user.name else "Champion",
+            habits=habits,
+            weekly_stats=weekly_stats,
+            sleep_data=sleep_response.data or [],
+            thoughts=[t['thought'] for t in (thoughts_response.data or [])]
+        )
+        
+        return report
+    except Exception as e:
+        logging.error(f"Error generating weekly report: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "summary": "Keep up the great work this week!",
+            "highlights": ["You're making progress!"],
+            "areas_to_improve": ["Stay consistent"],
+            "next_week_focus": "Build on your momentum",
+            "motivational_message": "You've got this! 🌟"
+        }
+
+
+@app.post("/ai/chat")
+async def chat_with_coach(
+    request: ChatRequest,
+    user: User = Depends(get_current_user)
+):
+    """Chat with AI habit coach"""
+    try:
+        stats = await get_user_stats(user)
+        
+        user_context = {
+            'total_habits': stats.get('total_habits', 5),
+            'current_streak': stats.get('current_streak', 0),
+            'total_days': stats.get('total_completed_days', 0)
+        }
+        
+        response = await chat_with_habit_coach(
+            message=request.message,
+            user_context=user_context
+        )
+        
+        return {"response": response}
+    except Exception as e:
+        logging.error(f"Error in chat: {str(e)}")
+        return {"response": "I'm here to help! What would you like to know about building better habits?"}
