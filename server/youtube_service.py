@@ -1,243 +1,225 @@
 # server/youtube_service.py
 import os
-from googleapiclient.discovery import build
-from typing import List, Optional
 import logging
+from typing import List, Dict, Optional
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from dotenv import load_dotenv
+
+load_dotenv()
+
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 
 logging.basicConfig(level=logging.INFO)
 
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-
-# Curated video playlists for different topics
-CURATED_VIDEOS = {
-    "habits": [
-        {"id": "PZ7lDrwYdZc", "title": "Atomic Habits Summary", "channel": "Productivity Game"},
-        {"id": "mNeXuCYiE0U", "title": "How to Build Good Habits", "channel": "Thomas Frank"},
-        {"id": "Wcs2PFz5q6g", "title": "The Science of Habits", "channel": "AsapSCIENCE"},
-    ],
-    "motivation": [
-        {"id": "mgmVOuLgFB0", "title": "Dream - Motivational Video", "channel": "Mateusz M"},
-        {"id": "g-jwWYX7Jlo", "title": "UNBROKEN - Motivational Video", "channel": "Absolute Motivation"},
-    ],
-    "sleep": [
-        {"id": "5MuIMqhT8DM", "title": "Why We Sleep", "channel": "TED"},
-        {"id": "pwaWilO_Pig", "title": "Sleep is Your Superpower", "channel": "TED"},
-    ],
-    "productivity": [
-        {"id": "IlU-zDU6aQ0", "title": "The One Thing Book Summary", "channel": "Productivity Game"},
-        {"id": "arj7oStGLkU", "title": "How to Get More Done", "channel": "TED"},
-    ],
-    "mindfulness": [
-        {"id": "inpok4MKVLM", "title": "How to Practice Mindfulness", "channel": "Headspace"},
-        {"id": "w6T02g5hnT4", "title": "The Power of Mindfulness", "channel": "TED"},
-    ]
-}
-
-
-def get_youtube_service():
-    """Get YouTube API service"""
-    if not YOUTUBE_API_KEY:
-        logging.warning("⚠️ YOUTUBE_API_KEY not set")
-        return None
-    return build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-
 
 def search_habit_videos(
-    query: str = "habit building tips",
+    query: str,
     max_results: int = 5,
-    category: str = None
-) -> List[dict]:
-    """Search for habit-related videos on YouTube"""
-    
-    # If category specified and we have curated videos, return those
-    if category and category in CURATED_VIDEOS:
-        return CURATED_VIDEOS[category][:max_results]
-    
-    youtube = get_youtube_service()
-    if not youtube:
-        # Return curated fallback videos
-        all_videos = []
-        for videos in CURATED_VIDEOS.values():
-            all_videos.extend(videos)
-        return all_videos[:max_results]
-    
+    category: Optional[str] = None
+) -> List[Dict]:
+    """Search YouTube for habit-related videos"""
     try:
-        # Add habit-related keywords to query
-        search_query = f"{query} habits motivation self-improvement"
+        # Enhance query based on category
+        if category:
+            category_queries = {
+                "habits": f"{query} atomic habits routine",
+                "motivation": f"{query} motivation discipline",
+                "sleep": f"{query} sleep health routine",
+                "productivity": f"{query} productivity habits",
+                "mindfulness": f"{query} mindfulness meditation"
+            }
+            search_query = category_queries.get(category, query)
+        else:
+            search_query = query
         
-        search_response = youtube.search().list(
+        request = youtube.search().list(
             q=search_query,
             part='snippet',
-            maxResults=max_results,
             type='video',
-            videoDuration='medium',  # 4-20 minutes
-            safeSearch='strict',
+            maxResults=max_results,
+            videoDefinition='high',
             relevanceLanguage='en',
-            order='relevance'
-        ).execute()
+            safeSearch='strict'
+        )
+        
+        response = request.execute()
         
         videos = []
-        for item in search_response.get('items', []):
+        for item in response.get('items', []):
+            video_id = item['id']['videoId']
+            snippet = item['snippet']
+            
             videos.append({
-                'id': item['id']['videoId'],
-                'title': item['snippet']['title'],
-                'description': item['snippet']['description'][:200],
-                'thumbnail': item['snippet']['thumbnails']['medium']['url'],
-                'channel': item['snippet']['channelTitle'],
-                'published_at': item['snippet']['publishedAt']
+                'id': video_id,
+                'title': snippet['title'],
+                'description': snippet['description'][:200] + '...',
+                'thumbnail': snippet['thumbnails']['high']['url'],
+                'channel': snippet['channelTitle'],
+                'published_at': snippet['publishedAt'],
+                'url': f'https://www.youtube.com/watch?v={video_id}'
             })
         
         return videos
+    except HttpError as e:
+        logging.error(f"YouTube API error: {e}")
+        return []
     except Exception as e:
-        logging.error(f"Error searching YouTube: {str(e)}")
-        # Return fallback curated videos
-        return CURATED_VIDEOS.get('habits', [])[:max_results]
+        logging.error(f"Error searching videos: {str(e)}")
+        return []
 
 
-def get_video_details(video_id: str) -> Optional[dict]:
+def get_video_details(video_id: str) -> Optional[Dict]:
     """Get detailed information about a specific video"""
-    
-    youtube = get_youtube_service()
-    if not youtube:
-        return None
-    
     try:
-        video_response = youtube.videos().list(
+        request = youtube.videos().list(
             part='snippet,contentDetails,statistics',
             id=video_id
-        ).execute()
+        )
         
-        if not video_response.get('items'):
+        response = request.execute()
+        
+        if not response.get('items'):
             return None
         
-        video = video_response['items'][0]
+        item = response['items'][0]
+        snippet = item['snippet']
+        stats = item['statistics']
         
         return {
             'id': video_id,
-            'title': video['snippet']['title'],
-            'description': video['snippet']['description'],
-            'thumbnail': video['snippet']['thumbnails']['high']['url'],
-            'channel': video['snippet']['channelTitle'],
-            'duration': video['contentDetails']['duration'],
-            'views': video['statistics'].get('viewCount', 0),
-            'likes': video['statistics'].get('likeCount', 0),
-            'embed_url': f"https://www.youtube.com/embed/{video_id}"
+            'title': snippet['title'],
+            'description': snippet['description'],
+            'thumbnail': snippet['thumbnails']['high']['url'],
+            'channel': snippet['channelTitle'],
+            'published_at': snippet['publishedAt'],
+            'view_count': stats.get('viewCount', 0),
+            'like_count': stats.get('likeCount', 0),
+            'duration': item['contentDetails']['duration'],
+            'url': f'https://www.youtube.com/watch?v={video_id}'
         }
     except Exception as e:
         logging.error(f"Error getting video details: {str(e)}")
         return None
 
 
-def get_recommended_videos_for_habit(habit_name: str, max_results: int = 3) -> List[dict]:
-    """Get video recommendations based on habit name"""
-    
-    # Map common habits to categories
-    habit_keywords = {
-        'exercise': ['workout', 'fitness', 'exercise habits'],
-        'meditation': ['meditation', 'mindfulness', 'calm'],
-        'reading': ['reading habits', 'how to read more', 'book habits'],
-        'sleep': ['sleep better', 'sleep habits', 'sleep hygiene'],
-        'water': ['hydration', 'drinking water habits'],
-        'journal': ['journaling', 'daily journal', 'gratitude journal'],
-        'study': ['study habits', 'learning', 'productivity'],
-        'wake': ['morning routine', 'wake up early', 'morning habits'],
+def get_recommended_videos_for_habit(habit_name: str, max_results: int = 3) -> List[Dict]:
+    """Get video recommendations for a specific habit"""
+    # Curated searches for common habits
+    habit_queries = {
+        "meditation": "guided meditation for beginners",
+        "exercise": "home workout routine",
+        "reading": "how to build reading habit",
+        "journaling": "journaling for beginners",
+        "water": "hydration benefits health",
+        "sleep": "improve sleep quality routine",
+        "workout": "effective workout routine",
+        "study": "effective study techniques",
+        "yoga": "yoga for beginners morning"
     }
     
-    # Find matching keywords
-    search_terms = []
-    habit_lower = habit_name.lower()
-    
-    for key, terms in habit_keywords.items():
-        if key in habit_lower:
-            search_terms.extend(terms)
+    # Find matching query or use habit name
+    search_query = None
+    for key, query in habit_queries.items():
+        if key in habit_name.lower():
+            search_query = query
             break
     
-    if not search_terms:
-        search_terms = [f"{habit_name} habit tips"]
+    if not search_query:
+        search_query = f"how to build {habit_name} habit"
     
-    return search_habit_videos(
-        query=search_terms[0],
-        max_results=max_results
-    )
+    return search_habit_videos(search_query, max_results)
 
 
 def get_daily_video_recommendation(
-    current_streak: int = 0,
-    completion_rate: float = 0,
+    current_streak: int,
+    completion_rate: float,
     time_of_day: str = "morning"
-) -> dict:
-    """Get a personalized daily video recommendation"""
-    
-    # Select category based on context
-    if completion_rate < 50:
-        category = "motivation"
-    elif time_of_day == "morning":
-        category = "productivity"
-    elif time_of_day == "evening":
-        category = "mindfulness"
-    else:
-        category = "habits"
-    
-    videos = CURATED_VIDEOS.get(category, CURATED_VIDEOS['habits'])
-    
-    # Rotate based on streak to avoid repetition
-    video_index = current_streak % len(videos)
-    selected_video = videos[video_index]
-    
-    return {
-        **selected_video,
-        'category': category,
-        'embed_url': f"https://www.youtube.com/embed/{selected_video['id']}",
-        'watch_url': f"https://www.youtube.com/watch?v={selected_video['id']}"
-    }
+) -> Optional[Dict]:
+    """Get personalized daily video recommendation"""
+    try:
+        # Choose query based on user's progress
+        if completion_rate < 50:
+            query = "how to stay motivated building habits"
+        elif current_streak < 7:
+            query = "building habits first week tips"
+        elif current_streak < 21:
+            query = "21 day habit formation"
+        elif current_streak < 100:
+            query = "maintaining long term habits"
+        else:
+            query = "advanced habit mastery"
+        
+        # Add time-based modifier
+        if time_of_day == "morning":
+            query += " morning routine"
+        elif time_of_day == "evening":
+            query += " evening routine"
+        
+        videos = search_habit_videos(query, max_results=1)
+        return videos[0] if videos else None
+    except Exception as e:
+        logging.error(f"Error getting daily recommendation: {str(e)}")
+        return None
 
 
-def get_learning_path_videos(difficulty: str = "beginner") -> dict:
-    """Get a structured learning path of videos"""
-    
-    learning_paths = {
-        "beginner": {
-            "title": "Habit Building 101",
-            "description": "Start your habit journey with these foundational videos",
-            "videos": [
-                {
-                    "week": 1,
-                    "topic": "Understanding Habits",
-                    "videos": CURATED_VIDEOS['habits'][:2]
-                },
-                {
-                    "week": 2,
-                    "topic": "Building Motivation",
-                    "videos": CURATED_VIDEOS['motivation'][:2]
-                },
-                {
-                    "week": 3,
-                    "topic": "Sleep & Recovery",
-                    "videos": CURATED_VIDEOS['sleep'][:2]
-                },
-                {
-                    "week": 4,
-                    "topic": "Productivity Systems",
-                    "videos": CURATED_VIDEOS['productivity'][:2]
-                }
-            ]
-        },
-        "intermediate": {
-            "title": "Advanced Habit Mastery",
-            "description": "Take your habits to the next level",
-            "videos": [
-                {
-                    "week": 1,
-                    "topic": "Habit Stacking",
-                    "videos": search_habit_videos("habit stacking", 2)
-                },
-                {
-                    "week": 2,
-                    "topic": "Environment Design",
-                    "videos": search_habit_videos("environment design habits", 2)
-                }
+def get_learning_path_videos(difficulty: str = "beginner") -> Dict:
+    """Get structured learning path videos"""
+    try:
+        paths = {
+            "beginner": [
+                {"title": "Introduction", "query": "habit building basics for beginners"},
+                {"title": "First Week", "query": "building habits first week"},
+                {"title": "Consistency", "query": "habit consistency techniques"}
+            ],
+            "intermediate": [
+                {"title": "21-Day Challenge", "query": "21 day habit challenge"},
+                {"title": "Habit Stacking", "query": "habit stacking technique"},
+                {"title": "Overcoming Plateaus", "query": "overcome habit plateau"}
+            ],
+            "advanced": [
+                {"title": "Habit Mastery", "query": "atomic habits mastery"},
+                {"title": "System Design", "query": "habit system design"},
+                {"title": "Long-term Success", "query": "maintaining habits long term"}
             ]
         }
+        
+        path = paths.get(difficulty, paths["beginner"])
+        
+        result = {
+            "difficulty": difficulty,
+            "modules": []
+        }
+        
+        for module in path:
+            videos = search_habit_videos(module["query"], max_results=2)
+            result["modules"].append({
+                "title": module["title"],
+                "videos": videos
+            })
+        
+        return result
+    except Exception as e:
+        logging.error(f"Error getting learning path: {str(e)}")
+        return {"difficulty": difficulty, "modules": []}
+
+
+# Curated high-quality channels for habit building
+RECOMMENDED_CHANNELS = [
+    {
+        "name": "Matt D'Avella",
+        "focus": "Minimalism & Habits",
+        "channel_id": "UCJ24N4O0bP7LGLBDvye7oCA"
+    },
+    {
+        "name": "Thomas Frank",
+        "focus": "Productivity",
+        "channel_id": "UCG-KntY7aVnIGXYEBQvmBAQ"
+    },
+    {
+        "name": "Better Ideas",
+        "focus": "Self-Improvement",
+        "channel_id": "UCtUId5WFnN82GdDy7DgaQ7w"
     }
-    
-    return learning_paths.get(difficulty, learning_paths["beginner"])
+]
