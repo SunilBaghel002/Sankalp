@@ -28,6 +28,13 @@ import {
   Sparkles,
   Star,
   Check,
+  Moon,
+  Sun,
+  Lightbulb,
+  Brain,
+  PenLine,
+  Save,
+  BedDouble,
 } from "lucide-react";
 import Confetti from "react-confetti";
 import { useWindowSize } from "react-use";
@@ -56,6 +63,16 @@ const DailyPage: React.FC = () => {
   });
   const [lastSevenDays, setLastSevenDays] = useState<{ date: string; completed: boolean }[]>([]);
 
+  // New state for thought and sleep
+  const [dailyThought, setDailyThought] = useState("");
+  const [sleepTime, setSleepTime] = useState("");
+  const [wakeTime, setWakeTime] = useState("");
+  const [sleepHours, setSleepHours] = useState<number | null>(null);
+  const [savingThought, setSavingThought] = useState(false);
+  const [savingSleep, setSavingSleep] = useState(false);
+  const [thoughtSaved, setThoughtSaved] = useState(false);
+  const [sleepSaved, setSleepSaved] = useState(false);
+
   const today = new Date().toISOString().split("T")[0];
   const { width, height } = useWindowSize();
 
@@ -68,6 +85,33 @@ const DailyPage: React.FC = () => {
     { progress: 80, message: "Almost done! Finish strong! 🎯", color: "text-green-400" },
     { progress: 100, message: "Perfect day! You're unstoppable! 🏆", color: "text-green-400" },
   ];
+
+  // Calculate sleep hours
+  const calculateSleepHours = (sleep: string, wake: string): number => {
+    if (!sleep || !wake) return 0;
+
+    const [sleepH, sleepM] = sleep.split(":").map(Number);
+    const [wakeH, wakeM] = wake.split(":").map(Number);
+
+    let sleepMinutes = sleepH * 60 + sleepM;
+    let wakeMinutes = wakeH * 60 + wakeM;
+
+    // If wake time is earlier than sleep time, assume next day
+    if (wakeMinutes < sleepMinutes) {
+      wakeMinutes += 24 * 60;
+    }
+
+    const totalMinutes = wakeMinutes - sleepMinutes;
+    return Math.round((totalMinutes / 60) * 100) / 100;
+  };
+
+  // Update sleep hours when times change
+  useEffect(() => {
+    if (sleepTime && wakeTime) {
+      const hours = calculateSleepHours(sleepTime, wakeTime);
+      setSleepHours(hours);
+    }
+  }, [sleepTime, wakeTime]);
 
   // Load habits and checkins
   useEffect(() => {
@@ -110,6 +154,38 @@ const DailyPage: React.FC = () => {
           });
           setTodayCheckins(checkinsMap);
           setCheckins(today, checkinsData);
+        }
+
+        // Load today's thought
+        const thoughtResponse = await fetch(`http://localhost:8000/daily-thought/${today}`, {
+          method: "GET",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (thoughtResponse.ok) {
+          const thoughtData = await thoughtResponse.json();
+          if (thoughtData && thoughtData.thought) {
+            setDailyThought(thoughtData.thought);
+            setThoughtSaved(true);
+          }
+        }
+
+        // Load today's sleep record
+        const sleepResponse = await fetch(`http://localhost:8000/sleep-record/${today}`, {
+          method: "GET",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (sleepResponse.ok) {
+          const sleepData = await sleepResponse.json();
+          if (sleepData) {
+            setSleepTime(sleepData.sleep_time || "");
+            setWakeTime(sleepData.wake_time || "");
+            setSleepHours(sleepData.sleep_hours || null);
+            setSleepSaved(true);
+          }
         }
 
         // Load stats
@@ -209,6 +285,63 @@ const DailyPage: React.FC = () => {
     }
   };
 
+  // Save daily thought
+  const saveThought = async () => {
+    if (!dailyThought.trim() || savingThought) return;
+
+    setSavingThought(true);
+    try {
+      const response = await fetch("http://localhost:8000/daily-thought", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: today,
+          thought: dailyThought.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        setThoughtSaved(true);
+        setTimeout(() => setThoughtSaved(false), 2000);
+      }
+    } catch (error) {
+      console.error("Error saving thought:", error);
+    } finally {
+      setSavingThought(false);
+    }
+  };
+
+  // Save sleep record
+  const saveSleepRecord = async () => {
+    if (!sleepTime || !wakeTime || savingSleep) return;
+
+    setSavingSleep(true);
+    try {
+      const response = await fetch("http://localhost:8000/sleep-record", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: today,
+          sleep_time: sleepTime,
+          wake_time: wakeTime,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSleepHours(data.sleep_hours);
+        setSleepSaved(true);
+        setTimeout(() => setSleepSaved(false), 2000);
+      }
+    } catch (error) {
+      console.error("Error saving sleep record:", error);
+    } finally {
+      setSavingSleep(false);
+    }
+  };
+
   const handleLogout = () => {
     document.cookie = "access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     navigate("/");
@@ -224,6 +357,17 @@ const DailyPage: React.FC = () => {
   const currentMessage = [...motivationalMessages]
     .reverse()
     .find((msg) => progressPercentage >= msg.progress) || motivationalMessages[0];
+
+  // Get sleep quality indicator
+  const getSleepQuality = (hours: number | null) => {
+    if (!hours) return { label: "Not tracked", color: "text-slate-400", bg: "bg-slate-700" };
+    if (hours < 5) return { label: "Poor", color: "text-red-400", bg: "bg-red-900/30" };
+    if (hours < 7) return { label: "Fair", color: "text-yellow-400", bg: "bg-yellow-900/30" };
+    if (hours < 9) return { label: "Good", color: "text-green-400", bg: "bg-green-900/30" };
+    return { label: "Excellent", color: "text-blue-400", bg: "bg-blue-900/30" };
+  };
+
+  const sleepQuality = getSleepQuality(sleepHours);
 
   if (loading) {
     return (
@@ -261,7 +405,7 @@ const DailyPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-white overflow-x-hidden">
       {/* Confetti Effect */}
-      {showConfetti && <Confetti width={width-50} height={height} recycle={false} numberOfPieces={500} />}
+      {showConfetti && <Confetti width={width - 50} height={height} recycle={false} numberOfPieces={500} />}
 
       {/* Header/Navbar */}
       <div className="sticky top-0 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 z-40">
@@ -316,11 +460,18 @@ const DailyPage: React.FC = () => {
                       <p className="text-sm text-slate-400">{user?.email}</p>
                     </div>
                     <button
+                      onClick={() => navigate("/analysis")}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
+                    >
+                      <BarChart3 className="w-5 h-5 text-purple-400" />
+                      <span>Analysis</span>
+                    </button>
+                    <button
                       onClick={() => navigate("/insights")}
                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
                     >
-                      <BarChart3 className="w-5 h-5 text-blue-400" />
-                      <span>Insights & Analytics</span>
+                      <TrendingUp className="w-5 h-5 text-blue-400" />
+                      <span>Insights</span>
                     </button>
                     <button
                       onClick={() => navigate("/streak")}
@@ -449,6 +600,161 @@ const DailyPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Daily Thought Section */}
+            <motion.div
+              initial={{ x: -50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="bg-slate-800 rounded-2xl p-6 border border-slate-700"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-purple-500/20 p-3 rounded-xl">
+                    <Lightbulb className="w-6 h-6 text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Today's Thought</h3>
+                    <p className="text-sm text-slate-400">Write one positive thought for today</p>
+                  </div>
+                </div>
+                {thoughtSaved && (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="flex items-center gap-2 text-green-400 text-sm"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Saved!</span>
+                  </motion.div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <textarea
+                  value={dailyThought}
+                  onChange={(e) => setDailyThought(e.target.value)}
+                  placeholder="What's one positive thought or reflection from today? ✨"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+                  rows={3}
+                />
+                <button
+                  onClick={saveThought}
+                  disabled={!dailyThought.trim() || savingThought}
+                  className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all w-full sm:w-auto ${dailyThought.trim()
+                      ? "bg-purple-500 hover:bg-purple-600 text-white"
+                      : "bg-slate-700 text-slate-500 cursor-not-allowed"
+                    }`}
+                >
+                  {savingThought ? (
+                    <>
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-5 h-5" />
+                      <span>Save Thought</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+
+            {/* Sleep Tracker Section */}
+            <motion.div
+              initial={{ x: -50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="bg-slate-800 rounded-2xl p-6 border border-slate-700"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-indigo-500/20 p-3 rounded-xl">
+                    <BedDouble className="w-6 h-6 text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Sleep Tracker</h3>
+                    <p className="text-sm text-slate-400">Track your sleep for better habits</p>
+                  </div>
+                </div>
+                {sleepSaved && (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="flex items-center gap-2 text-green-400 text-sm"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Saved!</span>
+                  </motion.div>
+                )}
+              </div>
+
+              <div className="grid sm:grid-cols-3 gap-4">
+                {/* Sleep Time */}
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-400">
+                    <Moon className="w-4 h-4" />
+                    <span>Bedtime (Last Night)</span>
+                  </label>
+                  <input
+                    type="time"
+                    value={sleepTime}
+                    onChange={(e) => setSleepTime(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Wake Time */}
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-400">
+                    <Sun className="w-4 h-4" />
+                    <span>Wake Up Time</span>
+                  </label>
+                  <input
+                    type="time"
+                    value={wakeTime}
+                    onChange={(e) => setWakeTime(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Sleep Hours Display */}
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-400">
+                    <Clock className="w-4 h-4" />
+                    <span>Total Sleep</span>
+                  </label>
+                  <div className={`${sleepQuality.bg} border border-slate-700 rounded-xl p-3 text-center`}>
+                    <div className={`text-2xl font-bold ${sleepQuality.color}`}>
+                      {sleepHours !== null ? `${sleepHours}h` : "--"}
+                    </div>
+                    <div className={`text-xs ${sleepQuality.color}`}>{sleepQuality.label}</div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={saveSleepRecord}
+                disabled={!sleepTime || !wakeTime || savingSleep}
+                className={`mt-4 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all w-full sm:w-auto ${sleepTime && wakeTime
+                    ? "bg-indigo-500 hover:bg-indigo-600 text-white"
+                    : "bg-slate-700 text-slate-500 cursor-not-allowed"
+                  }`}
+              >
+                {savingSleep ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-5 h-5" />
+                    <span>Save Sleep Record</span>
+                  </>
+                )}
+              </button>
+            </motion.div>
+
             {/* Today's Habits */}
             <div>
               <div className="flex items-center justify-between mb-4">
@@ -472,14 +778,14 @@ const DailyPage: React.FC = () => {
                       key={habit.id}
                       initial={{ x: -50, opacity: 0 }}
                       animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: index * 0.1 }}
+                      transition={{ delay: index * 0.1 + 0.3 }}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       className={`bg-slate-800 rounded-2xl p-6 border-2 transition-all cursor-pointer ${isCompleted
-                          ? "border-green-500 bg-green-900/20"
-                          : isPastDue
-                            ? "border-red-500/50"
-                            : "border-slate-700 hover:border-orange-500"
+                        ? "border-green-500 bg-green-900/20"
+                        : isPastDue
+                          ? "border-red-500/50"
+                          : "border-slate-700 hover:border-orange-500"
                         } ${saving ? "opacity-75 cursor-wait" : ""}`}
                       onClick={() => toggleHabit(habit.id)}
                     >
@@ -534,34 +840,34 @@ const DailyPage: React.FC = () => {
             {/* Quick Actions */}
             <div className="grid md:grid-cols-2 gap-4">
               <button
-                onClick={() => navigate("/insights")}
+                onClick={() => navigate("/analysis")}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 p-6 rounded-2xl transition-all group"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="bg-blue-500/10 p-3 rounded-xl">
-                      <BarChart3 className="w-6 h-6 text-blue-400" />
+                    <div className="bg-purple-500/10 p-3 rounded-xl">
+                      <BarChart3 className="w-6 h-6 text-purple-400" />
                     </div>
                     <div className="text-left">
-                      <h3 className="font-semibold mb-1">View Insights</h3>
-                      <p className="text-sm text-slate-400">Detailed analytics</p>
+                      <h3 className="font-semibold mb-1">View Analysis</h3>
+                      <p className="text-sm text-slate-400">Thoughts, Sleep & Habits</p>
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-white transition-colors" />
                 </div>
               </button>
               <button
-                onClick={() => navigate("/streak")}
+                onClick={() => navigate("/insights")}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 p-6 rounded-2xl transition-all group"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="bg-orange-500/10 p-3 rounded-xl">
-                      <Flame className="w-6 h-6 text-orange-400" />
+                    <div className="bg-blue-500/10 p-3 rounded-xl">
+                      <TrendingUp className="w-6 h-6 text-blue-400" />
                     </div>
                     <div className="text-left">
-                      <h3 className="font-semibold mb-1">Streak Details</h3>
-                      <p className="text-sm text-slate-400">Track your momentum</p>
+                      <h3 className="font-semibold mb-1">View Insights</h3>
+                      <p className="text-sm text-slate-400">Detailed analytics</p>
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-white transition-colors" />
@@ -643,10 +949,10 @@ const DailyPage: React.FC = () => {
                       <div className="text-xs text-slate-400 mb-2">{dayName}</div>
                       <div
                         className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold ${day.completed
-                            ? "bg-green-500 text-white"
-                            : isToday
-                              ? "bg-orange-500 text-white"
-                              : "bg-slate-700 text-slate-400"
+                          ? "bg-green-500 text-white"
+                          : isToday
+                            ? "bg-orange-500 text-white"
+                            : "bg-slate-700 text-slate-400"
                           }`}
                       >
                         {day.completed ? <Check className="w-5 h-5" /> : dayNum}
@@ -668,6 +974,29 @@ const DailyPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Today's Sleep Summary */}
+            {sleepHours !== null && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`${sleepQuality.bg} rounded-2xl p-6 border border-slate-700`}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <Moon className={`w-6 h-6 ${sleepQuality.color}`} />
+                  <h3 className="text-xl font-bold">Last Night's Sleep</h3>
+                </div>
+                <div className="text-center">
+                  <div className={`text-4xl font-bold ${sleepQuality.color} mb-2`}>
+                    {sleepHours}h
+                  </div>
+                  <div className={`text-sm ${sleepQuality.color}`}>{sleepQuality.label} Sleep</div>
+                  <div className="text-xs text-slate-400 mt-2">
+                    {sleepTime} → {wakeTime}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* Motivational Quote */}
             <div className="bg-gradient-to-br from-purple-900/50 to-blue-900/50 rounded-2xl p-6 border border-purple-500/30">
               <Sparkles className="w-8 h-8 text-purple-400 mb-4" />
@@ -682,7 +1011,7 @@ const DailyPage: React.FC = () => {
 
       {/* Saving Indicator */}
       <AnimatePresence>
-        {saving && (
+        {(saving || savingThought || savingSleep) && (
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
