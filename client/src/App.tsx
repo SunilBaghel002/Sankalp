@@ -13,6 +13,7 @@ import InsightsPage from "./pages/InsightsPage";
 import SuccessPage from "./pages/SuccessPage";
 import QuitPage from "./pages/QuitPage";
 import RouteTitle from "./components/RouteTitle";
+import AnalysisPage from "./pages/Analysis";
 
 // Page titles configuration
 const pageTitles: Record<string, string> = {
@@ -77,6 +78,14 @@ function App() {
           element={
             <ProtectedRoute requiresDeposit={true}>
               <StreakPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/analysis"
+          element={
+            <ProtectedRoute requiresDeposit={true}>
+              <AnalysisPage />
             </ProtectedRoute>
           }
         />
