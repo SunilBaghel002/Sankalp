@@ -1447,3 +1447,107 @@ async def chat_with_coach(
     except Exception as e:
         logging.error(f"Error in chat: {str(e)}")
         return {"response": "I'm here to help! What would you like to know about building better habits?"}
+
+@app.get("/videos/search")
+async def search_videos(
+    query: str = "habit building",
+    category: str = None,
+    max_results: int = 5,
+    user: User = Depends(get_current_user)
+):
+    """Search for habit-related videos"""
+    try:
+        videos = search_habit_videos(
+            query=query,
+            max_results=max_results,
+            category=category
+        )
+        return {"videos": videos}
+    except Exception as e:
+        logging.error(f"Error searching videos: {str(e)}")
+        return {"videos": [], "error": str(e)}
+
+
+@app.get("/videos/daily-recommendation")
+async def get_daily_video(user: User = Depends(get_current_user)):
+    """Get personalized daily video recommendation"""
+    try:
+        stats = await get_user_stats(user)
+        
+        # Determine time of day
+        from datetime import datetime
+        hour = datetime.now().hour
+        if hour < 12:
+            time_of_day = "morning"
+        elif hour < 17:
+            time_of_day = "afternoon"
+        else:
+            time_of_day = "evening"
+        
+        completion_rate = (stats.get('total_completed_days', 0) / 100) * 100
+        
+        video = get_daily_video_recommendation(
+            current_streak=stats.get('current_streak', 0),
+            completion_rate=completion_rate,
+            time_of_day=time_of_day
+        )
+        
+        return {"video": video, "time_of_day": time_of_day}
+    except Exception as e:
+        logging.error(f"Error getting daily video: {str(e)}")
+        return {"video": None, "error": str(e)}
+
+
+@app.get("/videos/for-habit/{habit_id}")
+async def get_videos_for_habit(
+    habit_id: int,
+    user: User = Depends(get_current_user)
+):
+    """Get video recommendations for a specific habit"""
+    try:
+        # Get habit details
+        habit_response = supabase.table('habits').select('*').eq(
+            'id', habit_id
+        ).eq('user_id', user.id).single().execute()
+        
+        if not habit_response.data:
+            raise HTTPException(404, "Habit not found")
+        
+        habit = habit_response.data
+        videos = get_recommended_videos_for_habit(habit['name'])
+        
+        return {
+            "habit": habit['name'],
+            "videos": videos
+        }
+    except Exception as e:
+        logging.error(f"Error getting videos for habit: {str(e)}")
+        return {"videos": [], "error": str(e)}
+
+
+@app.get("/videos/learning-path")
+async def get_learning_path(
+    difficulty: str = "beginner",
+    user: User = Depends(get_current_user)
+):
+    """Get structured video learning path"""
+    try:
+        path = get_learning_path_videos(difficulty)
+        return path
+    except Exception as e:
+        logging.error(f"Error getting learning path: {str(e)}")
+        return {"error": str(e)}
+
+
+@app.get("/videos/categories")
+async def get_video_categories(user: User = Depends(get_current_user)):
+    """Get available video categories"""
+    return {
+        "categories": [
+            {"id": "habits", "name": "Habit Building", "icon": "🎯"},
+            {"id": "motivation", "name": "Motivation", "icon": "🔥"},
+            {"id": "sleep", "name": "Sleep & Rest", "icon": "😴"},
+            {"id": "productivity", "name": "Productivity", "icon": "⚡"},
+            {"id": "mindfulness", "name": "Mindfulness", "icon": "🧘"}
+        ]
+    }
