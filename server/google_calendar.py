@@ -7,10 +7,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration
+# Configuration - Make sure these match EXACTLY with Google Console
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("GOOGLE_CALENDAR_REDIRECT_URI", "http://localhost:5173/calendar/callback")
+
+# This MUST match exactly with what's in Google Console
+REDIRECT_URI = "http://localhost:5173/calendar/callback"
+
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 logging.basicConfig(level=logging.INFO)
@@ -18,8 +21,9 @@ logging.basicConfig(level=logging.INFO)
 def get_calendar_auth_url(state: str = None) -> str:
     """Generate Google Calendar authorization URL"""
     try:
-        # Import here to avoid issues if libraries not installed
         from google_auth_oauthlib.flow import Flow
+        
+        logging.info(f"Creating OAuth flow with redirect_uri: {REDIRECT_URI}")
         
         flow = Flow.from_client_config(
             {
@@ -42,11 +46,13 @@ def get_calendar_auth_url(state: str = None) -> str:
             prompt='consent'
         )
         
-        logging.info(f"Generated auth URL with redirect_uri: {REDIRECT_URI}")
+        logging.info(f"✅ Generated auth URL successfully")
         return auth_url
-    except ImportError:
-        logging.error("google-auth-oauthlib not installed. Run: pip install google-auth-oauthlib")
-        raise Exception("Calendar dependencies not installed")
+        
+    except ImportError as e:
+        logging.error(f"Missing dependency: {str(e)}")
+        logging.error("Run: pip install google-auth-oauthlib google-api-python-client")
+        raise Exception("Calendar dependencies not installed. Run: pip install google-auth-oauthlib google-api-python-client")
     except Exception as e:
         logging.error(f"Error generating auth URL: {str(e)}")
         raise
@@ -56,6 +62,8 @@ def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
     """Exchange authorization code for access tokens"""
     try:
         from google_auth_oauthlib.flow import Flow
+        
+        logging.info(f"Exchanging code for tokens with redirect_uri: {REDIRECT_URI}")
         
         flow = Flow.from_client_config(
             {
@@ -74,16 +82,22 @@ def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
         flow.fetch_token(code=code)
         credentials = flow.credentials
         
-        return {
+        tokens = {
             "token": credentials.token,
             "refresh_token": credentials.refresh_token,
             "token_uri": credentials.token_uri,
             "client_id": credentials.client_id,
             "client_secret": credentials.client_secret,
-            "scopes": list(credentials.scopes) if credentials.scopes else []
+            "scopes": list(credentials.scopes) if credentials.scopes else SCOPES
         }
+        
+        logging.info("✅ Successfully exchanged code for tokens")
+        return tokens
+        
     except Exception as e:
         logging.error(f"Error exchanging code: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise
 
 
@@ -104,6 +118,7 @@ def get_calendar_service(tokens: Dict[str, Any]):
         
         service = build('calendar', 'v3', credentials=credentials)
         return service
+        
     except Exception as e:
         logging.error(f"Error creating calendar service: {str(e)}")
         raise
@@ -118,24 +133,33 @@ def create_habit_reminder(
 ) -> Dict[str, Any]:
     """Create recurring calendar event for habit reminder"""
     try:
-        from googleapiclient.errors import HttpError
-        
         # Parse habit time (format: HH:MM)
-        hour, minute = map(int, habit_time.split(':'))
+        try:
+            hour, minute = map(int, habit_time.split(':'))
+        except:
+            hour, minute = 9, 0  # Default to 9:00 AM
         
         # Set start date (today if not specified)
         if start_date:
-            start_dt = datetime.fromisoformat(start_date)
+            try:
+                start_dt = datetime.fromisoformat(start_date)
+            except:
+                start_dt = datetime.now()
         else:
             start_dt = datetime.now()
         
         # Set the time
         start_dt = start_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        end_dt = start_dt + timedelta(minutes=15)  # 15-minute reminder
+        
+        # If time has passed today, start tomorrow
+        if start_dt < datetime.now():
+            start_dt += timedelta(days=1)
+            
+        end_dt = start_dt + timedelta(minutes=15)
         
         event = {
             'summary': f'🎯 {habit_name}',
-            'description': f'Daily habit reminder\n\nWhy: {habit_why}\n\n💪 Stay consistent with Sankalp!',
+            'description': f'Daily habit reminder from Sankalp\n\n📝 Why: {habit_why}\n\n💪 Stay consistent! Complete this habit to build momentum.',
             'start': {
                 'dateTime': start_dt.isoformat(),
                 'timeZone': 'Asia/Kolkata',
@@ -145,7 +169,7 @@ def create_habit_reminder(
                 'timeZone': 'Asia/Kolkata',
             },
             'recurrence': [
-                'RRULE:FREQ=DAILY;COUNT=100'  # Repeat for 100 days
+                'RRULE:FREQ=DAILY;COUNT=100'
             ],
             'reminders': {
                 'useDefault': False,
@@ -154,43 +178,37 @@ def create_habit_reminder(
                     {'method': 'popup', 'minutes': 0},
                 ],
             },
-            'colorId': '9'  # Blue color
+            'colorId': '9'
         }
         
         event = service.events().insert(calendarId='primary', body=event).execute()
         
-        logging.info(f"✅ Created calendar event for {habit_name}")
+        logging.info(f"✅ Created calendar event for '{habit_name}'")
         return {
             "success": True,
             "event_id": event.get('id'),
             "link": event.get('htmlLink')
         }
-    except HttpError as error:
-        logging.error(f"Calendar API error: {error}")
-        return {"success": False, "error": str(error)}
+        
     except Exception as e:
-        logging.error(f"Error creating reminder: {str(e)}")
+        logging.error(f"Error creating reminder for '{habit_name}': {str(e)}")
         return {"success": False, "error": str(e)}
 
 
 def delete_habit_reminder(service, event_id: str) -> bool:
     """Delete a calendar event"""
     try:
-        from googleapiclient.errors import HttpError
-        
         service.events().delete(calendarId='primary', eventId=event_id).execute()
         logging.info(f"✅ Deleted calendar event {event_id}")
         return True
-    except HttpError as error:
-        logging.error(f"Error deleting event: {error}")
+    except Exception as e:
+        logging.error(f"Error deleting event: {e}")
         return False
 
 
 def get_upcoming_reminders(service, max_results: int = 10):
     """Get upcoming habit reminders from calendar"""
     try:
-        from googleapiclient.errors import HttpError
-        
         now = datetime.utcnow().isoformat() + 'Z'
         
         events_result = service.events().list(
@@ -199,7 +217,7 @@ def get_upcoming_reminders(service, max_results: int = 10):
             maxResults=max_results,
             singleEvents=True,
             orderBy='startTime',
-            q='🎯'  # Search for events with our habit emoji
+            q='🎯'
         ).execute()
         
         events = events_result.get('items', [])
@@ -207,16 +225,14 @@ def get_upcoming_reminders(service, max_results: int = 10):
         return [
             {
                 'id': event['id'],
-                'summary': event['summary'],
+                'summary': event.get('summary', 'Habit Reminder'),
                 'start': event['start'].get('dateTime', event['start'].get('date')),
                 'description': event.get('description', ''),
-                'link': event.get('htmlLink')
+                'link': event.get('htmlLink', '')
             }
             for event in events
         ]
-    except HttpError as error:
-        logging.error(f"Error fetching events: {error}")
-        return []
+        
     except Exception as e:
-        logging.error(f"Error: {str(e)}")
+        logging.error(f"Error fetching events: {e}")
         return []
