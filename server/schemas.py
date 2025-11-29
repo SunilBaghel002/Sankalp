@@ -1,6 +1,6 @@
 # server/schemas.py
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime, date, time
 
 
@@ -82,3 +82,50 @@ class AnalysisResponse(BaseModel):
     thoughts: List[DailyThoughtOut]
     sleep_records: List[SleepRecordOut]
     habit_completions: List[HabitCompletionData]
+    
+class DailyThoughtCreate(BaseModel):
+    date: str
+    thought: str
+
+class DailyThoughtOut(BaseModel):
+    id: int
+    user_id: int
+    date: str
+    thought: str
+    created_at: str
+    updated_at: Optional[str] = None
+
+class SleepRecordCreate(BaseModel):
+    date: str
+    sleep_time: str  # Format: "HH:MM"
+    wake_time: str   # Format: "HH:MM"
+
+class SleepRecordOut(BaseModel):
+    id: int
+    user_id: int
+    date: str
+    sleep_time: str
+    wake_time: str
+    sleep_hours: float
+    created_at: str
+    updated_at: Optional[str] = None
+
+class MonthlyAnalysisRequest(BaseModel):
+    year: int
+    month: int
+
+class HabitCompletionData(BaseModel):
+    date: str
+    habits: Dict[int, bool]
+    all_completed: bool
+    completed_count: int
+    total_habits: int
+
+class AnalysisResponse(BaseModel):
+    thoughts: List[DailyThoughtOut]
+    sleep_records: List[SleepRecordOut]
+    habit_completions: List[HabitCompletionData]
+    habits: List[HabitOut]
+    month: int
+    year: int
+    days_in_month: int
