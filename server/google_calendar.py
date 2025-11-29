@@ -7,16 +7,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration - Make sure these match EXACTLY with Google Console
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-
-# This MUST match exactly with what's in Google Console
 REDIRECT_URI = "http://localhost:5173/calendar/callback"
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+# ✅ Use less sensitive scope - only events access instead of full calendar
+SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
 logging.basicConfig(level=logging.INFO)
+
 
 def get_calendar_auth_url(state: str = None) -> str:
     """Generate Google Calendar authorization URL"""
@@ -24,6 +23,7 @@ def get_calendar_auth_url(state: str = None) -> str:
         from google_auth_oauthlib.flow import Flow
         
         logging.info(f"Creating OAuth flow with redirect_uri: {REDIRECT_URI}")
+        logging.info(f"Using scopes: {SCOPES}")
         
         flow = Flow.from_client_config(
             {
@@ -51,7 +51,6 @@ def get_calendar_auth_url(state: str = None) -> str:
         
     except ImportError as e:
         logging.error(f"Missing dependency: {str(e)}")
-        logging.error("Run: pip install google-auth-oauthlib google-api-python-client")
         raise Exception("Calendar dependencies not installed. Run: pip install google-auth-oauthlib google-api-python-client")
     except Exception as e:
         logging.error(f"Error generating auth URL: {str(e)}")
@@ -133,13 +132,11 @@ def create_habit_reminder(
 ) -> Dict[str, Any]:
     """Create recurring calendar event for habit reminder"""
     try:
-        # Parse habit time (format: HH:MM)
         try:
             hour, minute = map(int, habit_time.split(':'))
         except:
-            hour, minute = 9, 0  # Default to 9:00 AM
+            hour, minute = 9, 0
         
-        # Set start date (today if not specified)
         if start_date:
             try:
                 start_dt = datetime.fromisoformat(start_date)
@@ -148,10 +145,8 @@ def create_habit_reminder(
         else:
             start_dt = datetime.now()
         
-        # Set the time
         start_dt = start_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
         
-        # If time has passed today, start tomorrow
         if start_dt < datetime.now():
             start_dt += timedelta(days=1)
             
@@ -159,7 +154,7 @@ def create_habit_reminder(
         
         event = {
             'summary': f'🎯 {habit_name}',
-            'description': f'Daily habit reminder from Sankalp\n\n📝 Why: {habit_why}\n\n💪 Stay consistent! Complete this habit to build momentum.',
+            'description': f'Daily habit reminder from Sankalp\n\n📝 Why: {habit_why}\n\n💪 Stay consistent!',
             'start': {
                 'dateTime': start_dt.isoformat(),
                 'timeZone': 'Asia/Kolkata',
