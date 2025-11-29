@@ -11,6 +11,14 @@ from datetime import datetime, date, timedelta
 from passlib.context import CryptContext
 from email_service import generate_otp, send_otp_email, store_otp, verify_otp
 from dotenv import load_dotenv
+from schemas import (
+    UserOut, HabitCreate, HabitOut, CheckInCreate,
+    DailyThoughtCreate, DailyThoughtOut,
+    SleepRecordCreate, SleepRecordOut,
+    MonthlyAnalysisRequest, AnalysisResponse, HabitCompletionData
+)
+from datetime import datetime, date, timedelta
+import calendar
 
 logging.basicConfig(level=logging.INFO)
 
@@ -414,6 +422,130 @@ async def get_user_stats(user: User = Depends(get_current_user)):
             "longest_streak": 0,
             "deposit_paid": False
         }
+        
+@app.get("/insights")
+async def get_insights(user: User = Depends(get_current_user)):
+    try:
+        # Get all user data
+        habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        checkins_response = supabase.table('checkins').select('*').eq('user_id', user.id).execute()
+        thoughts_response = supabase.table('daily_thoughts').select('*').eq('user_id', user.id).execute()
+        sleep_response = supabase.table('sleep_records').select('*').eq('user_id', user.id).execute()
+        
+        habits = habits_response.data if habits_response.data else []
+        checkins = checkins_response.data if checkins_response.data else []
+        thoughts = thoughts_response.data if thoughts_response.data else []
+        sleep_records = sleep_response.data if sleep_response.data else []
+        
+        total_habits = len(habits)
+        
+        # Calculate habit completion rate per habit
+        habit_stats = {}
+        for habit in habits:
+            habit_checkins = [c for c in checkins if c['habit_id'] == habit['id'] and c['completed']]
+            habit_stats[habit['id']] = {
+                "name": habit['name'],
+                "completed_count": len(habit_checkins),
+                "completion_rate": 0
+            }
+        
+        # Calculate completion rates
+        if checkins:
+            unique_dates = set(c['date'] for c in checkins)
+            for habit_id in habit_stats:
+                habit_stats[habit_id]['completion_rate'] = round(
+                    (habit_stats[habit_id]['completed_count'] / len(unique_dates)) * 100, 1
+                ) if unique_dates else 0
+        
+        # Calculate average sleep
+        avg_sleep = 0
+        if sleep_records:
+            total_sleep = sum(r.get('sleep_hours', 0) for r in sleep_records)
+            avg_sleep = round(total_sleep / len(sleep_records), 1)
+        
+        # Calculate streak
+        today = date.today()
+        current_streak = 0
+        checkins_by_date = {}
+        
+        for checkin in checkins:
+            date_str = checkin['date']
+            if date_str not in checkins_by_date:
+                checkins_by_date[date_str] = []
+            if checkin['completed']:
+                checkins_by_date[date_str].append(checkin['habit_id'])
+        
+        current_date = today
+        while True:
+            date_str = current_date.strftime('%Y-%m-%d')
+            if date_str in checkins_by_date:
+                completed_habits = len(set(checkins_by_date[date_str]))
+                if completed_habits == total_habits and total_habits > 0:
+                    current_streak += 1
+                    current_date = current_date - timedelta(days=1)
+                else:
+                    break
+            else:
+                if current_streak == 0:
+                    current_date = current_date - timedelta(days=1)
+                    if (today - current_date).days > 1:
+                        break
+                else:
+                    break
+        
+        # Count total completed days
+        total_completed_days = 0
+        for date_str, habit_ids in checkins_by_date.items():
+            if len(set(habit_ids)) == total_habits and total_habits > 0:
+                total_completed_days += 1
+        
+        # Weekly data for charts
+        weekly_data = []
+        for i in range(6, -1, -1):
+            check_date = today - timedelta(days=i)
+            date_str = check_date.strftime('%Y-%m-%d')
+            day_name = check_date.strftime('%a')
+            
+            completed = len(set(checkins_by_date.get(date_str, [])))
+            weekly_data.append({
+                "day": day_name,
+                "date": date_str,
+                "completed": completed,
+                "total": total_habits,
+                "percentage": round((completed / total_habits) * 100, 1) if total_habits > 0 else 0
+            })
+        
+        # Sleep data for last 7 days
+        weekly_sleep = []
+        for i in range(6, -1, -1):
+            check_date = today - timedelta(days=i)
+            date_str = check_date.strftime('%Y-%m-%d')
+            day_name = check_date.strftime('%a')
+            
+            sleep_record = next((r for r in sleep_records if r['date'] == date_str), None)
+            weekly_sleep.append({
+                "day": day_name,
+                "date": date_str,
+                "hours": sleep_record.get('sleep_hours', 0) if sleep_record else 0
+            })
+        
+        return {
+            "current_streak": current_streak,
+            "total_completed_days": total_completed_days,
+            "total_habits": total_habits,
+            "habit_stats": list(habit_stats.values()),
+            "total_thoughts": len(thoughts),
+            "total_sleep_records": len(sleep_records),
+            "average_sleep": avg_sleep,
+            "weekly_data": weekly_data,
+            "weekly_sleep": weekly_sleep,
+            "deposit_paid": user.deposit_paid
+        }
+    except Exception as e:
+        logging.error(f"Error fetching insights: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to fetch insights: {str(e)}")
 
 
 # ==================== EMAIL AUTH ENDPOINTS ====================
@@ -674,3 +806,235 @@ async def resend_otp(request: ResendOTPRequest):  # ✅ FIXED: Use Pydantic mode
 
     logging.info(f"✅ OTP resent to {email}")
     return {"message": "OTP resent successfully"}
+
+@app.post("/daily-thought")
+async def create_or_update_daily_thought(
+    thought_data: DailyThoughtCreate,
+    user: User = Depends(get_current_user)
+):
+    try:
+        # Check if thought already exists for this date
+        existing = supabase.table('daily_thoughts').select('*').eq(
+            'user_id', user.id
+        ).eq('date', thought_data.date).execute()
+        
+        if existing.data:
+            # Update existing thought
+            response = supabase.table('daily_thoughts').update({
+                "thought": thought_data.thought,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq('id', existing.data[0]['id']).execute()
+            logging.info(f"✅ Updated daily thought for {user.email} on {thought_data.date}")
+        else:
+            # Create new thought
+            response = supabase.table('daily_thoughts').insert({
+                "user_id": user.id,
+                "date": thought_data.date,
+                "thought": thought_data.thought,
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+            logging.info(f"✅ Created daily thought for {user.email} on {thought_data.date}")
+        
+        return {"message": "Thought saved!", "data": response.data}
+    except Exception as e:
+        logging.error(f"Error saving daily thought: {str(e)}")
+        raise HTTPException(500, f"Failed to save thought: {str(e)}")
+
+
+@app.get("/daily-thought/{date}")
+async def get_daily_thought(date: str, user: User = Depends(get_current_user)):
+    try:
+        response = supabase.table('daily_thoughts').select('*').eq(
+            'user_id', user.id
+        ).eq('date', date).execute()
+        
+        if response.data:
+            return response.data[0]
+        return None
+    except Exception as e:
+        logging.error(f"Error fetching daily thought: {str(e)}")
+        raise HTTPException(500, "Failed to fetch thought")
+
+
+@app.get("/daily-thoughts")
+async def get_all_daily_thoughts(user: User = Depends(get_current_user)):
+    try:
+        response = supabase.table('daily_thoughts').select('*').eq(
+            'user_id', user.id
+        ).order('date', desc=True).execute()
+        
+        return response.data if response.data else []
+    except Exception as e:
+        logging.error(f"Error fetching daily thoughts: {str(e)}")
+        raise HTTPException(500, "Failed to fetch thoughts")
+
+
+# ==================== SLEEP RECORD ENDPOINTS ====================
+
+def calculate_sleep_hours(sleep_time: str, wake_time: str) -> float:
+    """Calculate sleep duration in hours"""
+    try:
+        sleep_dt = datetime.strptime(sleep_time, "%H:%M")
+        wake_dt = datetime.strptime(wake_time, "%H:%M")
+        
+        # If wake time is earlier than sleep time, assume next day
+        if wake_dt < sleep_dt:
+            wake_dt += timedelta(days=1)
+        
+        duration = wake_dt - sleep_dt
+        hours = duration.total_seconds() / 3600
+        return round(hours, 2)
+    except Exception as e:
+        logging.error(f"Error calculating sleep hours: {str(e)}")
+        return 0.0
+
+
+@app.post("/sleep-record")
+async def create_or_update_sleep_record(
+    sleep_data: SleepRecordCreate,
+    user: User = Depends(get_current_user)
+):
+    try:
+        sleep_hours = calculate_sleep_hours(sleep_data.sleep_time, sleep_data.wake_time)
+        
+        # Check if record already exists for this date
+        existing = supabase.table('sleep_records').select('*').eq(
+            'user_id', user.id
+        ).eq('date', sleep_data.date).execute()
+        
+        if existing.data:
+            # Update existing record
+            response = supabase.table('sleep_records').update({
+                "sleep_time": sleep_data.sleep_time,
+                "wake_time": sleep_data.wake_time,
+                "sleep_hours": sleep_hours,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq('id', existing.data[0]['id']).execute()
+            logging.info(f"✅ Updated sleep record for {user.email} on {sleep_data.date}")
+        else:
+            # Create new record
+            response = supabase.table('sleep_records').insert({
+                "user_id": user.id,
+                "date": sleep_data.date,
+                "sleep_time": sleep_data.sleep_time,
+                "wake_time": sleep_data.wake_time,
+                "sleep_hours": sleep_hours,
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+            logging.info(f"✅ Created sleep record for {user.email} on {sleep_data.date}")
+        
+        return {"message": "Sleep record saved!", "data": response.data, "sleep_hours": sleep_hours}
+    except Exception as e:
+        logging.error(f"Error saving sleep record: {str(e)}")
+        raise HTTPException(500, f"Failed to save sleep record: {str(e)}")
+
+
+@app.get("/sleep-record/{date}")
+async def get_sleep_record(date: str, user: User = Depends(get_current_user)):
+    try:
+        response = supabase.table('sleep_records').select('*').eq(
+            'user_id', user.id
+        ).eq('date', date).execute()
+        
+        if response.data:
+            return response.data[0]
+        return None
+    except Exception as e:
+        logging.error(f"Error fetching sleep record: {str(e)}")
+        raise HTTPException(500, "Failed to fetch sleep record")
+
+
+@app.get("/sleep-records")
+async def get_all_sleep_records(user: User = Depends(get_current_user)):
+    try:
+        response = supabase.table('sleep_records').select('*').eq(
+            'user_id', user.id
+        ).order('date', desc=True).execute()
+        
+        return response.data if response.data else []
+    except Exception as e:
+        logging.error(f"Error fetching sleep records: {str(e)}")
+        raise HTTPException(500, "Failed to fetch sleep records")
+
+
+# ==================== ANALYSIS ENDPOINT ====================
+
+@app.get("/analysis/monthly")
+async def get_monthly_analysis(
+    year: int,
+    month: int,
+    user: User = Depends(get_current_user)
+):
+    try:
+        # Get the first and last day of the month
+        first_day = date(year, month, 1)
+        last_day = date(year, month, calendar.monthrange(year, month)[1])
+        
+        first_day_str = first_day.strftime('%Y-%m-%d')
+        last_day_str = last_day.strftime('%Y-%m-%d')
+        
+        # Fetch thoughts for the month
+        thoughts_response = supabase.table('daily_thoughts').select('*').eq(
+            'user_id', user.id
+        ).gte('date', first_day_str).lte('date', last_day_str).order('date').execute()
+        
+        # Fetch sleep records for the month
+        sleep_response = supabase.table('sleep_records').select('*').eq(
+            'user_id', user.id
+        ).gte('date', first_day_str).lte('date', last_day_str).order('date').execute()
+        
+        # Fetch habits
+        habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        habits = habits_response.data if habits_response.data else []
+        
+        # Fetch checkins for the month
+        checkins_response = supabase.table('checkins').select('*').eq(
+            'user_id', user.id
+        ).gte('date', first_day_str).lte('date', last_day_str).execute()
+        
+        checkins = checkins_response.data if checkins_response.data else []
+        
+        # Group checkins by date
+        checkins_by_date = {}
+        for checkin in checkins:
+            date_str = checkin['date']
+            if date_str not in checkins_by_date:
+                checkins_by_date[date_str] = {}
+            checkins_by_date[date_str][checkin['habit_id']] = checkin['completed']
+        
+        # Build habit completions array for each day of the month
+        habit_completions = []
+        total_habits = len(habits)
+        
+        current_date = first_day
+        while current_date <= last_day:
+            date_str = current_date.strftime('%Y-%m-%d')
+            day_checkins = checkins_by_date.get(date_str, {})
+            
+            completed_count = sum(1 for v in day_checkins.values() if v)
+            all_completed = completed_count == total_habits and total_habits > 0
+            
+            habit_completions.append({
+                "date": date_str,
+                "habits": day_checkins,
+                "all_completed": all_completed,
+                "completed_count": completed_count,
+                "total_habits": total_habits
+            })
+            
+            current_date += timedelta(days=1)
+        
+        return {
+            "thoughts": thoughts_response.data if thoughts_response.data else [],
+            "sleep_records": sleep_response.data if sleep_response.data else [],
+            "habit_completions": habit_completions,
+            "habits": habits,
+            "month": month,
+            "year": year,
+            "days_in_month": calendar.monthrange(year, month)[1]
+        }
+    except Exception as e:
+        logging.error(f"Error fetching monthly analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to fetch analysis: {str(e)}")
