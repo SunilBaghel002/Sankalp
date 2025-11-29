@@ -1099,7 +1099,13 @@ async def calendar_oauth_callback(
 ):
     """Handle Google Calendar OAuth callback"""
     try:
+        logging.info(f"Calendar callback received for user {user.id}")
+        
+        # Exchange code for tokens
         tokens = exchange_code_for_tokens(request.code)
+        
+        if not tokens.get("token"):
+            raise HTTPException(400, "Failed to get access token")
         
         # Store tokens in database
         supabase.table('users').update({
@@ -1108,8 +1114,13 @@ async def calendar_oauth_callback(
         
         logging.info(f"✅ Calendar connected for user {user.email}")
         return {"success": True, "message": "Calendar connected successfully!"}
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error in calendar callback: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, f"Failed to connect calendar: {str(e)}")
 
 
@@ -1124,11 +1135,41 @@ async def sync_habits_to_calendar(user: User = Depends(get_current_user)):
             raise HTTPException(400, "Calendar not connected. Please connect your Google Calendar first.")
         
         tokens = user_data.data['calendar_tokens']
-        service = get_calendar_service(tokens)
+        
+        # Check if we need to refresh the token
+        try:
+            service = get_calendar_service(tokens)
+            # Test the service
+            service.calendarList().list(maxResults=1).execute()
+        except Exception as e:
+            logging.warning(f"Token might be expired, trying to refresh: {str(e)}")
+            # Try to refresh token
+            if tokens.get('refresh_token'):
+                try:
+                    from google_calendar import refresh_access_token
+                    new_tokens = refresh_access_token(tokens['refresh_token'])
+                    # Update tokens in database
+                    supabase.table('users').update({
+                        "calendar_tokens": new_tokens
+                    }).eq('id', user.id).execute()
+                    tokens = new_tokens
+                    service = get_calendar_service(tokens)
+                except Exception as refresh_error:
+                    logging.error(f"Failed to refresh token: {refresh_error}")
+                    raise HTTPException(401, "Calendar authorization expired. Please reconnect your calendar.")
+            else:
+                raise HTTPException(401, "Calendar authorization expired. Please reconnect your calendar.")
         
         # Get user's habits
         habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
         habits = habits_response.data if habits_response.data else []
+        
+        if not habits:
+            return {
+                "success": True,
+                "message": "No habits to sync",
+                "results": []
+            }
         
         results = []
         for habit in habits:
@@ -1150,28 +1191,54 @@ async def sync_habits_to_calendar(user: User = Depends(get_current_user)):
                 **result
             })
         
+        success_count = sum(1 for r in results if r.get('success'))
+        
         return {
             "success": True,
-            "message": f"Synced {len(habits)} habits to calendar",
+            "message": f"Synced {success_count}/{len(habits)} habits to calendar",
             "results": results
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error syncing habits to calendar: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, f"Failed to sync habits: {str(e)}")
 
 
 @app.get("/calendar/status")
 async def get_calendar_status(user: User = Depends(get_current_user)):
-    """Check if calendar is connected"""
+    """Check if calendar is connected and tokens are valid"""
     try:
         user_data = supabase.table('users').select('calendar_tokens').eq('id', user.id).single().execute()
         
-        is_connected = bool(user_data.data and user_data.data.get('calendar_tokens'))
+        if not user_data.data or not user_data.data.get('calendar_tokens'):
+            return {"connected": False, "message": "Calendar not connected"}
         
-        return {
-            "connected": is_connected,
-            "message": "Calendar is connected" if is_connected else "Calendar not connected"
-        }
+        tokens = user_data.data['calendar_tokens']
+        
+        # Verify tokens are still valid by making a test API call
+        try:
+            service = get_calendar_service(tokens)
+            service.calendarList().list(maxResults=1).execute()
+            return {"connected": True, "message": "Calendar is connected"}
+        except Exception as e:
+            logging.warning(f"Calendar token validation failed: {str(e)}")
+            # Try to refresh
+            if tokens.get('refresh_token'):
+                try:
+                    from google_calendar import refresh_access_token
+                    new_tokens = refresh_access_token(tokens['refresh_token'])
+                    supabase.table('users').update({
+                        "calendar_tokens": new_tokens
+                    }).eq('id', user.id).execute()
+                    return {"connected": True, "message": "Calendar is connected (token refreshed)"}
+                except:
+                    pass
+            
+            return {"connected": False, "message": "Calendar authorization expired", "needs_reauth": True}
+            
     except Exception as e:
         logging.error(f"Error checking calendar status: {str(e)}")
         return {"connected": False, "message": "Error checking status"}
