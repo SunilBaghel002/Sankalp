@@ -1,7 +1,7 @@
 # server/schemas.py
 from pydantic import BaseModel, EmailStr
-from typing import Optional
-from datetime import datetime
+from typing import Optional, List
+from datetime import datetime, date, time
 
 
 class UserOut(BaseModel):
@@ -43,3 +43,42 @@ class CheckInOut(BaseModel):
     date: str
     completed: bool
     created_at: Optional[datetime] = None
+    
+class DailyThoughtCreate(BaseModel):
+    date: str
+    thought: str
+
+class DailyThoughtOut(BaseModel):
+    id: int
+    user_id: int
+    date: str
+    thought: str
+    created_at: Optional[str] = None
+
+class SleepRecordCreate(BaseModel):
+    date: str
+    sleep_time: str  # HH:MM format
+    wake_time: str   # HH:MM format
+
+class SleepRecordOut(BaseModel):
+    id: int
+    user_id: int
+    date: str
+    sleep_time: str
+    wake_time: str
+    sleep_hours: float
+    created_at: Optional[str] = None
+
+class MonthlyAnalysisRequest(BaseModel):
+    year: int
+    month: int
+
+class HabitCompletionData(BaseModel):
+    date: str
+    habits: dict  # {habit_id: bool}
+    all_completed: bool
+
+class AnalysisResponse(BaseModel):
+    thoughts: List[DailyThoughtOut]
+    sleep_records: List[SleepRecordOut]
+    habit_completions: List[HabitCompletionData]
