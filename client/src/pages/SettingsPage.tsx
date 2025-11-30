@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import CalendarSync from "../components/CalendarSync";
 import PageLayout from "../components/PageLayout";
+import PushNotificationSettings from '../components/PushNotificationSettings';
 
 interface Habit {
     id: number;
@@ -62,6 +63,7 @@ const SettingsPage: React.FC = () => {
         current_streak: 0,
         deposit_paid: false,
     });
+    <PushNotificationSettings />
 
     useEffect(() => {
         loadData();
