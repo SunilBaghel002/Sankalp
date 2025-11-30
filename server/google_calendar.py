@@ -1,4 +1,4 @@
-# server/google_calendar.py
+# server/google_calendar.py (updated)
 import os
 import logging
 from datetime import datetime, timedelta
@@ -11,8 +11,6 @@ load_dotenv()
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = "http://localhost:5173/calendar/callback"
-
-# Calendar scope
 CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +19,6 @@ logging.basicConfig(level=logging.INFO)
 def get_calendar_auth_url(state: str = None) -> str:
     """Generate Google Calendar authorization URL"""
     try:
-        # Build URL manually to have more control
         base_url = "https://accounts.google.com/o/oauth2/v2/auth"
         
         params = {
@@ -31,13 +28,12 @@ def get_calendar_auth_url(state: str = None) -> str:
             "scope": " ".join(CALENDAR_SCOPES),
             "access_type": "offline",
             "prompt": "consent",
-            "include_granted_scopes": "false",  # Don't include previously granted scopes
+            "include_granted_scopes": "false",
         }
         
         if state:
             params["state"] = state
         
-        # Build query string
         query_string = "&".join(f"{k}={requests.utils.quote(str(v))}" for k, v in params.items())
         auth_url = f"{base_url}?{query_string}"
         
@@ -50,11 +46,10 @@ def get_calendar_auth_url(state: str = None) -> str:
 
 
 def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
-    """Exchange authorization code for access tokens using requests"""
+    """Exchange authorization code for access tokens"""
     try:
         logging.info(f"Exchanging code for tokens...")
         
-        # Use requests directly instead of google-auth-oauthlib
         token_url = "https://oauth2.googleapis.com/token"
         
         data = {
@@ -89,8 +84,6 @@ def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
         
     except Exception as e:
         logging.error(f"Error exchanging code: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise
 
 
@@ -116,7 +109,7 @@ def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
         
         return {
             "token": token_data.get("access_token"),
-            "refresh_token": refresh_token,  # Keep the original refresh token
+            "refresh_token": refresh_token,
             "token_uri": "https://oauth2.googleapis.com/token",
             "client_id": CLIENT_ID,
             "client_secret": CLIENT_SECRET,
@@ -134,14 +127,9 @@ def get_calendar_service(tokens: Dict[str, Any]):
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
         
-        # Get fresh token if needed
-        access_token = tokens.get("token")
-        refresh_token = tokens.get("refresh_token")
-        
-        # Create credentials
         credentials = Credentials(
-            token=access_token,
-            refresh_token=refresh_token,
+            token=tokens.get("token"),
+            refresh_token=tokens.get("refresh_token"),
             token_uri="https://oauth2.googleapis.com/token",
             client_id=CLIENT_ID,
             client_secret=CLIENT_SECRET,
@@ -162,15 +150,17 @@ def create_habit_reminder(
     habit_why: str,
     start_date: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Create recurring calendar event for habit reminder"""
+    """Create recurring calendar event for habit reminder
+    
+    Note: This creates schedule reminders. Smart notifications 
+    (only when habit not completed) are handled separately via email.
+    """
     try:
-        # Parse habit time (format: HH:MM)
         try:
             hour, minute = map(int, habit_time.split(':'))
         except:
-            hour, minute = 9, 0  # Default to 9:00 AM
+            hour, minute = 9, 0
         
-        # Set start date (today if not specified)
         if start_date:
             try:
                 start_dt = datetime.fromisoformat(start_date)
@@ -179,10 +169,8 @@ def create_habit_reminder(
         else:
             start_dt = datetime.now()
         
-        # Set the time
         start_dt = start_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
         
-        # If time has passed today, start tomorrow
         if start_dt < datetime.now():
             start_dt += timedelta(days=1)
             
@@ -190,7 +178,17 @@ def create_habit_reminder(
         
         event = {
             'summary': f'🎯 {habit_name}',
-            'description': f'Daily habit reminder from Sankalp\n\n📝 Why: {habit_why}\n\n💪 Stay consistent! Complete this habit to build momentum.',
+            'description': f"""Daily habit reminder from Sankalp
+
+📝 Why: {habit_why}
+
+💡 This is your scheduled time for this habit.
+   Open Sankalp to mark it complete!
+   
+🔗 http://localhost:5173/daily
+
+Note: You'll only get email reminders if you haven't 
+completed this habit by the scheduled time.""",
             'start': {
                 'dateTime': start_dt.isoformat(),
                 'timeZone': 'Asia/Kolkata',
@@ -205,11 +203,10 @@ def create_habit_reminder(
             'reminders': {
                 'useDefault': False,
                 'overrides': [
-                    {'method': 'popup', 'minutes': 10},
-                    {'method': 'popup', 'minutes': 0},
+                    {'method': 'popup', 'minutes': 5},
                 ],
             },
-            'colorId': '9'
+            'colorId': '6'  # Orange color
         }
         
         event = service.events().insert(calendarId='primary', body=event).execute()

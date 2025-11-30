@@ -18,6 +18,10 @@ from schemas import (
     MonthlyAnalysisRequest, AnalysisResponse, HabitCompletionData
 )
 
+from smart_notifications import check_and_send_reminders, send_reminder_email
+
+
+
 from google_calendar import (
     get_calendar_auth_url,
     exchange_code_for_tokens,
@@ -115,6 +119,10 @@ class ChatRequest(BaseModel):
 class ThoughtReflectionRequest(BaseModel):
     thought: str
     date: str
+    
+class NotificationPreferences(BaseModel):
+    email_notifications: bool = True
+    reminder_time: Optional[str] = None  # e.g., "18:00" for 6 PM reminder
 
 used_codes = set()
 
@@ -1918,3 +1926,77 @@ async def get_leaderboard(user: User = Depends(get_current_user)):
     except Exception as e:
         logging.error(f"Error getting leaderboard: {str(e)}")
         return {"leaderboard": [], "current_user_rank": None}
+    
+
+@app.put("/settings/notifications")
+async def update_notification_settings(
+    preferences: NotificationPreferences,
+    user: User = Depends(get_current_user)
+):
+    """Update user notification preferences"""
+    try:
+        supabase.table('users').update({
+            "email_notifications": preferences.email_notifications,
+            "reminder_time": preferences.reminder_time
+        }).eq('id', user.id).execute()
+        
+        return {"success": True, "message": "Notification settings updated"}
+    except Exception as e:
+        logging.error(f"Error updating notifications: {str(e)}")
+        raise HTTPException(500, "Failed to update settings")
+
+
+@app.get("/settings/notifications")
+async def get_notification_settings(user: User = Depends(get_current_user)):
+    """Get user notification preferences"""
+    try:
+        response = supabase.table('users').select(
+            'email_notifications, reminder_time'
+        ).eq('id', user.id).single().execute()
+        
+        return response.data or {"email_notifications": True, "reminder_time": None}
+    except Exception as e:
+        logging.error(f"Error getting notifications: {str(e)}")
+        return {"email_notifications": True, "reminder_time": None}
+
+
+@app.post("/admin/trigger-reminders")
+async def trigger_smart_reminders():
+    """Manually trigger smart reminders (for testing or cron job)"""
+    try:
+        result = await check_and_send_reminders(supabase)
+        return result
+    except Exception as e:
+        logging.error(f"Error triggering reminders: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/habits/incomplete-today")
+async def get_incomplete_habits_today(user: User = Depends(get_current_user)):
+    """Get list of incomplete habits for today"""
+    try:
+        today = date.today().strftime('%Y-%m-%d')
+        
+        # Get all habits
+        habits_response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        habits = habits_response.data or []
+        
+        # Get today's checkins
+        checkins_response = supabase.table('checkins').select('*').eq(
+            'user_id', user.id
+        ).eq('date', today).execute()
+        
+        completed_ids = set(
+            c['habit_id'] for c in (checkins_response.data or []) if c['completed']
+        )
+        
+        incomplete = [h for h in habits if h['id'] not in completed_ids]
+        
+        return {
+            "incomplete_habits": incomplete,
+            "completed_count": len(completed_ids),
+            "total_count": len(habits)
+        }
+    except Exception as e:
+        logging.error(f"Error getting incomplete habits: {str(e)}")
+        raise HTTPException(500, str(e))
