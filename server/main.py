@@ -18,6 +18,10 @@ from schemas import (
     MonthlyAnalysisRequest, AnalysisResponse, HabitCompletionData
 )
 
+from push_notification_service import push_service, SmartNotificationScheduler
+from pydantic import BaseModel
+from typing import List, Optional
+
 from smart_notifications import check_and_send_reminders, send_reminder_email
 
 
