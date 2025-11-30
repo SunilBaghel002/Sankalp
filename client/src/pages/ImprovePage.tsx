@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import PageLayout from "../components/PageLayout";
 import {
-    ArrowLeft,
     Sparkles,
     Youtube,
     Brain,
@@ -14,15 +14,10 @@ import {
     TrendingUp,
     Zap,
     Star,
-    Award,
-    Flame,
-    BookOpen,
-    Home,
-    BarChart3,
-    Moon,
     Calendar,
     ChevronRight,
     Loader2,
+    BookOpen,
 } from "lucide-react";
 import MotivationalQuote from "../components/MotivationalQuote";
 import DailyAffirmation from "../components/DailyAffirmation";
@@ -114,82 +109,49 @@ const ImprovePage: React.FC = () => {
         }
     };
 
+    const tabItems = [
+        { id: "motivation", label: "Motivation", icon: Lightbulb, activeColor: "bg-orange-500" },
+        { id: "videos", label: "Videos", icon: Youtube, activeColor: "bg-red-500" },
+        { id: "gamification", label: "Badges & XP", icon: Trophy, activeColor: "bg-yellow-500" },
+        { id: "calendar", label: "Calendar", icon: Calendar, activeColor: "bg-blue-500" },
+    ];
+
     return (
-        <div className="min-h-screen bg-slate-950 text-white pb-24">
-            {/* Header */}
-            <div className="sticky top-0 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 z-40 p-4">
-                <div className="max-w-7xl mx-auto">
-                    <div className="flex items-center justify-between">
-                        <button
-                            onClick={() => navigate("/daily")}
-                            className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
-                        >
-                            <ArrowLeft className="w-5 h-5" />
-                            <span>Back</span>
-                        </button>
-                        <h1 className="text-xl font-bold flex items-center gap-2">
-                            <Sparkles className="w-6 h-6 text-orange-500" />
-                            Improve & Learn
-                        </h1>
-                        <button
-                            onClick={() => setShowAICoach(true)}
-                            className="flex items-center gap-2 bg-purple-500 hover:bg-purple-600 px-4 py-2 rounded-xl font-medium transition-colors"
-                        >
-                            <Brain className="w-5 h-5" />
-                            <span className="hidden sm:inline">AI Coach</span>
-                        </button>
-                    </div>
-                </div>
+        <PageLayout pageTitle="Improve & Learn" pageIcon={Sparkles}>
+            {/* AI Coach Button - Fixed */}
+            <div className="fixed bottom-28 right-4 z-30">
+                <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setShowAICoach(true)}
+                    className="bg-gradient-to-r from-purple-500 to-blue-500 p-4 rounded-full shadow-lg hover:shadow-purple-500/25"
+                >
+                    <Brain className="w-6 h-6 text-white" />
+                </motion.button>
             </div>
 
-            {/* Tab Navigation */}
             <div className="max-w-7xl mx-auto px-4 py-4">
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                    <button
-                        onClick={() => setActiveTab("motivation")}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${activeTab === "motivation"
-                                ? "bg-orange-500 text-white"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                            }`}
-                    >
-                        <Lightbulb className="w-4 h-4" />
-                        <span>Motivation</span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab("videos")}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${activeTab === "videos"
-                                ? "bg-red-500 text-white"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                            }`}
-                    >
-                        <Youtube className="w-4 h-4" />
-                        <span>Videos</span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab("gamification")}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${activeTab === "gamification"
-                                ? "bg-yellow-500 text-white"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                            }`}
-                    >
-                        <Trophy className="w-4 h-4" />
-                        <span>Badges & XP</span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab("calendar")}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${activeTab === "calendar"
-                                ? "bg-blue-500 text-white"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                            }`}
-                    >
-                        <Calendar className="w-4 h-4" />
-                        <span>Calendar</span>
-                    </button>
+                {/* Tab Navigation */}
+                <div className="flex gap-2 overflow-x-auto pb-4 mb-4">
+                    {tabItems.map((tab) => {
+                        const Icon = tab.icon;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${activeTab === tab.id
+                                        ? `${tab.activeColor} text-white`
+                                        : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                                    }`}
+                            >
+                                <Icon className="w-4 h-4" />
+                                <span className="hidden min-[400px]:inline">{tab.label}</span>
+                            </button>
+                        );
+                    })}
                 </div>
-            </div>
 
-            {/* Content */}
-            <div className="max-w-7xl mx-auto px-4">
+                {/* Content */}
                 <AnimatePresence mode="wait">
                     {activeTab === "motivation" && (
                         <motion.div
@@ -381,13 +343,13 @@ const ImprovePage: React.FC = () => {
                                             <div className="text-3xl font-bold text-yellow-400">
                                                 {gamificationProfile.total_badges}
                                             </div>
-                                            <div className="text-sm text-slate-400">Badges Earned</div>
+                                            <div className="text-sm text-slate-400">Badges</div>
                                         </div>
                                         <div className="bg-slate-800 rounded-xl p-4 border border-slate-700 text-center">
                                             <div className="text-3xl font-bold text-purple-400">
                                                 {gamificationProfile.level.level}
                                             </div>
-                                            <div className="text-sm text-slate-400">Current Level</div>
+                                            <div className="text-sm text-slate-400">Level</div>
                                         </div>
                                     </div>
 
@@ -430,7 +392,7 @@ const ImprovePage: React.FC = () => {
                                         </div>
                                         <h4 className="font-semibold mb-2">Daily Events</h4>
                                         <p className="text-sm text-slate-400">
-                                            Creates recurring events for each of your habits at their scheduled times
+                                            Creates recurring events for each of your habits
                                         </p>
                                     </div>
                                     <div className="bg-slate-900/50 rounded-xl p-4">
@@ -439,7 +401,7 @@ const ImprovePage: React.FC = () => {
                                         </div>
                                         <h4 className="font-semibold mb-2">Smart Notifications</h4>
                                         <p className="text-sm text-slate-400">
-                                            Get popup reminders 10 and 30 minutes before each habit
+                                            Get popup reminders before each habit
                                         </p>
                                     </div>
                                     <div className="bg-slate-900/50 rounded-xl p-4">
@@ -448,7 +410,7 @@ const ImprovePage: React.FC = () => {
                                         </div>
                                         <h4 className="font-semibold mb-2">100-Day Challenge</h4>
                                         <p className="text-sm text-slate-400">
-                                            Reminders are set for the full 100 days of your challenge
+                                            Reminders for the full 100 days
                                         </p>
                                     </div>
                                 </div>
@@ -460,41 +422,7 @@ const ImprovePage: React.FC = () => {
 
             {/* AI Coach Modal */}
             <AICoach isOpen={showAICoach} onClose={() => setShowAICoach(false)} />
-
-            {/* Bottom Navigation */}
-            <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-4 z-50">
-                <div className="max-w-7xl mx-auto flex items-center justify-around">
-                    <button
-                        onClick={() => navigate("/daily")}
-                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
-                    >
-                        <Home className="w-6 h-6" />
-                        <span className="text-xs">Home</span>
-                    </button>
-                    <button
-                        onClick={() => navigate("/analysis")}
-                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
-                    >
-                        <BarChart3 className="w-6 h-6" />
-                        <span className="text-xs">Analysis</span>
-                    </button>
-                    <button
-                        onClick={() => navigate("/improve")}
-                        className="flex flex-col items-center gap-1 text-orange-400"
-                    >
-                        <Sparkles className="w-6 h-6" />
-                        <span className="text-xs font-semibold">Improve</span>
-                    </button>
-                    <button
-                        onClick={() => navigate("/insights")}
-                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
-                    >
-                        <TrendingUp className="w-6 h-6" />
-                        <span className="text-xs">Insights</span>
-                    </button>
-                </div>
-            </div>
-        </div>
+        </PageLayout>
     );
 };
 

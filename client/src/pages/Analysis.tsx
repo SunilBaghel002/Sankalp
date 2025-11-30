@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../store/useStore";
+import PageLayout from "../components/PageLayout";
 import {
     Flame,
     ChevronLeft,
@@ -17,11 +18,6 @@ import {
     BarChart3,
     Clock,
     Brain,
-    User,
-    LogOut,
-    Settings,
-    Home,
-    Sparkles,
     Sun,
     Sunrise,
 } from "lucide-react";
@@ -71,7 +67,6 @@ const AnalysisPage: React.FC = () => {
     const [sleepRecords, setSleepRecords] = useState<SleepData[]>([]);
     const [habitCompletions, setHabitCompletions] = useState<HabitCompletion[]>([]);
     const [habits, setHabits] = useState<Habit[]>([]);
-    const [showMenu, setShowMenu] = useState(false);
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth() + 1;
@@ -131,24 +126,10 @@ const AnalysisPage: React.FC = () => {
         }
     };
 
-    const formatDate = (dateStr: string) => {
-        const date = new Date(dateStr);
-        return date.toLocaleDateString("en-US", { weekday: "short", day: "numeric" });
-    };
-
     const getDayNumber = (dateStr: string) => {
         return new Date(dateStr).getDate();
     };
 
-    const handleLogout = () => {
-        document.cookie = "access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-        navigate("/");
-    };
-
-    // Get max sleep hours for scaling the chart
-    const maxSleepHours = Math.max(...sleepRecords.map(r => r.sleep_hours), 10);
-
-    // Get sleep quality color
     const getSleepQualityColor = (hours: number) => {
         if (hours >= 7 && hours <= 9) return "bg-green-500";
         if (hours >= 6) return "bg-yellow-500";
@@ -171,104 +152,23 @@ const AnalysisPage: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <div className="text-center">
-                    <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"
-                    />
-                    <p className="text-white text-lg">Loading analysis...</p>
+            <PageLayout pageTitle="Monthly Analysis" pageIcon={BarChart3}>
+                <div className="flex items-center justify-center min-h-[60vh]">
+                    <div className="text-center">
+                        <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"
+                        />
+                        <p className="text-white text-lg">Loading analysis...</p>
+                    </div>
                 </div>
-            </div>
+            </PageLayout>
         );
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 text-white pb-20">
-            {/* Header */}
-            <div className="sticky top-0 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 z-40">
-                <div className="max-w-7xl mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between">
-                        {/* Back Button & Logo */}
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => navigate("/daily")}
-                                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <ChevronLeft className="w-5 h-5" />
-                                <span className="hidden sm:block">Back</span>
-                            </button>
-                            <div className="flex items-center gap-3">
-                                <BarChart3 className="w-8 h-8 text-purple-500" />
-                                <span className="text-xl font-bold hidden sm:block">Monthly Analysis</span>
-                            </div>
-                        </div>
-
-                        {/* User Menu */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowMenu(!showMenu)}
-                                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl border border-slate-700 transition-all"
-                            >
-                                <User className="w-5 h-5" />
-                                <span className="hidden sm:block">{user?.name?.split(" ")[0]}</span>
-                            </button>
-
-                            <AnimatePresence>
-                                {showMenu && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: -10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -10 }}
-                                        className="absolute right-0 mt-2 w-56 bg-slate-800 rounded-xl border border-slate-700 shadow-2xl overflow-hidden z-50"
-                                    >
-                                        <button
-                                            onClick={() => navigate("/daily")}
-                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
-                                        >
-                                            <Home className="w-5 h-5 text-orange-400" />
-                                            <span>Daily</span>
-                                        </button>
-                                        <button
-                                            onClick={() => navigate("/insights")}
-                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
-                                        >
-                                            <TrendingUp className="w-5 h-5 text-blue-400" />
-                                            <span>Insights</span>
-                                        </button>
-                                        <button
-                                            onClick={() => navigate("/improve")}
-                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
-                                        >
-                                            <Sparkles className="w-5 h-5 text-yellow-400" />
-                                            <span>Improve</span>
-                                        </button>
-                                        <button
-                                            onClick={() => navigate("/settings")}
-                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700 transition-all"
-                                        >
-                                            <Settings className="w-5 h-5 text-slate-400" />
-                                            <span>Settings</span>
-                                        </button>
-                                        <div className="border-t border-slate-700">
-                                            <button
-                                                onClick={handleLogout}
-                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-red-900/20 text-red-400 transition-all"
-                                            >
-                                                <LogOut className="w-5 h-5" />
-                                                <span>Logout</span>
-                                            </button>
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Main Content */}
+        <PageLayout pageTitle="Monthly Analysis" pageIcon={BarChart3}>
             <div className="max-w-7xl mx-auto px-4 py-6">
                 {/* Month Navigation */}
                 <div className="flex items-center justify-between mb-6">
@@ -282,7 +182,7 @@ const AnalysisPage: React.FC = () => {
 
                     <div className="flex items-center gap-3">
                         <Calendar className="w-6 h-6 text-orange-500" />
-                        <h1 className="text-xl sm:text-2xl font-bold">{monthName}</h1>
+                        <h2 className="text-xl sm:text-2xl font-bold">{monthName}</h2>
                     </div>
 
                     <button
@@ -520,10 +420,6 @@ const AnalysisPage: React.FC = () => {
                                         <div className="w-4 h-4 bg-red-500 rounded"></div>
                                         <span className="text-slate-400">Poor (&lt;6h)</span>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 bg-slate-600 rounded"></div>
-                                        <span className="text-slate-400">No data</span>
-                                    </div>
                                 </div>
                             </div>
 
@@ -709,41 +605,7 @@ const AnalysisPage: React.FC = () => {
                     )}
                 </AnimatePresence>
             </div>
-
-            {/* Bottom Navigation */}
-            <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-4 z-50">
-                <div className="max-w-7xl mx-auto flex items-center justify-around">
-                    <button
-                        onClick={() => navigate("/daily")}
-                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
-                    >
-                        <Home className="w-6 h-6" />
-                        <span className="text-xs">Home</span>
-                    </button>
-                    <button
-                        onClick={() => navigate("/analysis")}
-                        className="flex flex-col items-center gap-1 text-orange-400"
-                    >
-                        <BarChart3 className="w-6 h-6" />
-                        <span className="text-xs font-semibold">Analysis</span>
-                    </button>
-                    <button
-                        onClick={() => navigate("/improve")}
-                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
-                    >
-                        <Sparkles className="w-6 h-6" />
-                        <span className="text-xs">Improve</span>
-                    </button>
-                    <button
-                        onClick={() => navigate("/insights")}
-                        className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors"
-                    >
-                        <TrendingUp className="w-6 h-6" />
-                        <span className="text-xs">Insights</span>
-                    </button>
-                </div>
-            </div>
-        </div>
+        </PageLayout>
     );
 };
 
