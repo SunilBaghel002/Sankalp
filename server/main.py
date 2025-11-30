@@ -136,6 +136,24 @@ class ThoughtReflectionRequest(BaseModel):
 class NotificationPreferences(BaseModel):
     email_notifications: bool = True
     reminder_time: Optional[str] = None  # e.g., "18:00" for 6 PM reminder
+    
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: dict
+    expirationTime: Optional[str] = None
+
+class NotificationPreferences(BaseModel):
+    push_enabled: bool = True
+    morning_motivation: bool = True
+    habit_reminders: bool = True
+    streak_alerts: bool = True
+    evening_reminder: bool = True
+    achievement_alerts: bool = True
+    sleep_reminders: bool = True
+
+class TestNotificationRequest(BaseModel):
+    title: str = "Test Notification"
+    body: str = "This is a test notification from Sankalp!"
 
 used_codes = set()
 
@@ -2365,4 +2383,305 @@ async def create_habit_from_template(
         raise
     except Exception as e:
         logging.error(f"Error creating from template: {str(e)}")
+        raise HTTPException(500, str(e))
+
+@app.get("/push/vapid-public-key")
+async def get_vapid_public_key():
+    """Get VAPID public key for push subscription"""
+    public_key = os.getenv("VAPID_PUBLIC_KEY")
+    if not public_key:
+        raise HTTPException(500, "Push notifications not configured")
+    return {"publicKey": public_key}
+
+
+@app.post("/push/subscribe")
+async def subscribe_to_push(
+    subscription: PushSubscription,
+    user: User = Depends(get_current_user)
+):
+    """Subscribe to push notifications"""
+    try:
+        # Get current subscriptions
+        user_data = supabase.table('users').select('push_subscriptions').eq(
+            'id', user.id
+        ).single().execute()
+        
+        current_subs = user_data.data.get('push_subscriptions', []) or []
+        
+        # Convert subscription to dict
+        new_sub = {
+            "endpoint": subscription.endpoint,
+            "keys": subscription.keys,
+            "expirationTime": subscription.expirationTime,
+            "created_at": datetime.now().isoformat()
+        }
+        
+        # Check if already subscribed (by endpoint)
+        existing = next(
+            (s for s in current_subs if s.get('endpoint') == subscription.endpoint),
+            None
+        )
+        
+        if existing:
+            # Update existing subscription
+            current_subs = [s for s in current_subs if s.get('endpoint') != subscription.endpoint]
+        
+        current_subs.append(new_sub)
+        
+        # Save to database
+        supabase.table('users').update({
+            'push_subscriptions': current_subs
+        }).eq('id', user.id).execute()
+        
+        # Send welcome notification
+        push_service.send_notification(
+            subscription={"endpoint": subscription.endpoint, "keys": subscription.keys},
+            title="🎉 Notifications Enabled!",
+            body="You'll now receive reminders for your habits. Stay consistent!",
+            tag="welcome",
+            data={"type": "welcome", "url": "/daily"}
+        )
+        
+        logging.info(f"✅ Push subscription added for user {user.email}")
+        return {"success": True, "message": "Subscribed to push notifications"}
+        
+    except Exception as e:
+        logging.error(f"Error subscribing to push: {str(e)}")
+        raise HTTPException(500, f"Failed to subscribe: {str(e)}")
+
+
+@app.delete("/push/unsubscribe")
+async def unsubscribe_from_push(
+    subscription: PushSubscription,
+    user: User = Depends(get_current_user)
+):
+    """Unsubscribe from push notifications"""
+    try:
+        user_data = supabase.table('users').select('push_subscriptions').eq(
+            'id', user.id
+        ).single().execute()
+        
+        current_subs = user_data.data.get('push_subscriptions', []) or []
+        
+        # Remove the subscription
+        updated_subs = [
+            s for s in current_subs 
+            if s.get('endpoint') != subscription.endpoint
+        ]
+        
+        supabase.table('users').update({
+            'push_subscriptions': updated_subs
+        }).eq('id', user.id).execute()
+        
+        logging.info(f"✅ Push subscription removed for user {user.email}")
+        return {"success": True, "message": "Unsubscribed from push notifications"}
+        
+    except Exception as e:
+        logging.error(f"Error unsubscribing: {str(e)}")
+        raise HTTPException(500, f"Failed to unsubscribe: {str(e)}")
+
+
+@app.get("/push/status")
+async def get_push_status(user: User = Depends(get_current_user)):
+    """Get push notification status for current user"""
+    try:
+        user_data = supabase.table('users').select(
+            'push_subscriptions, notification_preferences'
+        ).eq('id', user.id).single().execute()
+        
+        subscriptions = user_data.data.get('push_subscriptions', []) or []
+        preferences = user_data.data.get('notification_preferences', {}) or {}
+        
+        return {
+            "subscribed": len(subscriptions) > 0,
+            "subscription_count": len(subscriptions),
+            "preferences": preferences
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting push status: {str(e)}")
+        return {"subscribed": False, "subscription_count": 0, "preferences": {}}
+
+
+@app.put("/push/preferences")
+async def update_notification_preferences(
+    preferences: NotificationPreferences,
+    user: User = Depends(get_current_user)
+):
+    """Update notification preferences"""
+    try:
+        supabase.table('users').update({
+            'notification_preferences': preferences.dict()
+        }).eq('id', user.id).execute()
+        
+        return {"success": True, "message": "Preferences updated"}
+        
+    except Exception as e:
+        logging.error(f"Error updating preferences: {str(e)}")
+        raise HTTPException(500, f"Failed to update preferences: {str(e)}")
+
+
+@app.get("/push/preferences")
+async def get_notification_preferences(user: User = Depends(get_current_user)):
+    """Get notification preferences"""
+    try:
+        user_data = supabase.table('users').select(
+            'notification_preferences'
+        ).eq('id', user.id).single().execute()
+        
+        preferences = user_data.data.get('notification_preferences', {}) or {}
+        
+        # Return with defaults
+        return {
+            "push_enabled": preferences.get('push_enabled', True),
+            "morning_motivation": preferences.get('morning_motivation', True),
+            "habit_reminders": preferences.get('habit_reminders', True),
+            "streak_alerts": preferences.get('streak_alerts', True),
+            "evening_reminder": preferences.get('evening_reminder', True),
+            "achievement_alerts": preferences.get('achievement_alerts', True),
+            "sleep_reminders": preferences.get('sleep_reminders', True),
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting preferences: {str(e)}")
+        return NotificationPreferences().dict()
+
+
+@app.post("/push/test")
+async def send_test_notification(
+    request: TestNotificationRequest,
+    user: User = Depends(get_current_user)
+):
+    """Send a test notification to the current user"""
+    try:
+        user_data = supabase.table('users').select('push_subscriptions').eq(
+            'id', user.id
+        ).single().execute()
+        
+        subscriptions = user_data.data.get('push_subscriptions', []) or []
+        
+        if not subscriptions:
+            raise HTTPException(400, "No push subscriptions found. Please enable notifications first.")
+        
+        results = []
+        for sub in subscriptions:
+            result = push_service.send_notification(
+                subscription={"endpoint": sub['endpoint'], "keys": sub['keys']},
+                title=request.title,
+                body=request.body,
+                tag="test",
+                data={"type": "test", "url": "/daily"}
+            )
+            results.append(result)
+        
+        success_count = sum(1 for r in results if r.get('success'))
+        
+        return {
+            "success": success_count > 0,
+            "message": f"Sent to {success_count}/{len(subscriptions)} devices"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error sending test notification: {str(e)}")
+        raise HTTPException(500, f"Failed to send notification: {str(e)}")
+
+
+@app.post("/push/send-habit-reminder/{habit_id}")
+async def send_habit_reminder(
+    habit_id: int,
+    user: User = Depends(get_current_user)
+):
+    """Manually trigger a habit reminder"""
+    try:
+        # Get habit
+        habit_response = supabase.table('habits').select('*').eq(
+            'id', habit_id
+        ).eq('user_id', user.id).single().execute()
+        
+        if not habit_response.data:
+            raise HTTPException(404, "Habit not found")
+        
+        habit = habit_response.data
+        
+        # Get user subscriptions and stats
+        user_data = supabase.table('users').select(
+            'push_subscriptions, current_streak'
+        ).eq('id', user.id).single().execute()
+        
+        subscriptions = user_data.data.get('push_subscriptions', []) or []
+        streak = user_data.data.get('current_streak', 0)
+        
+        if not subscriptions:
+            raise HTTPException(400, "No push subscriptions found")
+        
+        results = []
+        for sub in subscriptions:
+            result = push_service.send_habit_reminder(
+                subscription={"endpoint": sub['endpoint'], "keys": sub['keys']},
+                habit_name=habit['name'],
+                habit_time=habit['time'],
+                streak=streak
+            )
+            results.append(result)
+        
+        success_count = sum(1 for r in results if r.get('success'))
+        
+        return {
+            "success": success_count > 0,
+            "message": f"Reminder sent to {success_count} devices"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error sending habit reminder: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+# ==================== SCHEDULED NOTIFICATION TRIGGERS ====================
+# These endpoints should be called by a cron job or scheduler
+
+@app.post("/cron/check-reminders")
+async def trigger_reminder_check(
+    api_key: str = None  # Add API key authentication for cron jobs
+):
+    """Trigger smart reminder check (call every 5-10 minutes)"""
+    try:
+        # Optional: Verify API key for cron security
+        # if api_key != os.getenv("CRON_API_KEY"):
+        #     raise HTTPException(401, "Invalid API key")
+        
+        scheduler = SmartNotificationScheduler(supabase)
+        results = await scheduler.check_and_send_reminders()
+        
+        return results
+        
+    except Exception as e:
+        logging.error(f"Error in reminder check: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/cron/morning-motivation")
+async def trigger_morning_motivation():
+    """Trigger morning motivation (call at ~7 AM)"""
+    try:
+        scheduler = SmartNotificationScheduler(supabase)
+        results = await scheduler.send_morning_motivation()
+        return results
+    except Exception as e:
+        logging.error(f"Error in morning motivation: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/cron/evening-reminder")
+async def trigger_evening_reminder():
+    """Trigger evening reminder (call at ~8 PM)"""
+    try:
+        scheduler = SmartNotificationScheduler(supabase)
+        results = await scheduler.send_evening_reminder()
+        return results
+    except Exception as e:
+        logging.error(f"Error in evening reminder: {str(e)}")
         raise HTTPException(500, str(e))
