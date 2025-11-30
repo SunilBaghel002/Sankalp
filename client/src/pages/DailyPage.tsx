@@ -512,12 +512,12 @@ const DailyPage: React.FC = () => {
           {/* Left Column - Main Content */}
           <div className="lg:col-span-2 space-y-6">
             <motion.div
-  initial={{ opacity: 0, y: 20 }}
-  animate={{ opacity: 1, y: 0 }}
-  transition={{ delay: 0.3 }}
->
-  <CalendarSync />
-</motion.div>
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+            >
+              <CalendarSync />
+            </motion.div>
 
             {/* Welcome Section */}
             <motion.div
@@ -649,8 +649,8 @@ const DailyPage: React.FC = () => {
                   onClick={saveThought}
                   disabled={!dailyThought.trim() || savingThought}
                   className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all w-full sm:w-auto ${dailyThought.trim()
-                      ? "bg-purple-500 hover:bg-purple-600 text-white"
-                      : "bg-slate-700 text-slate-500 cursor-not-allowed"
+                    ? "bg-purple-500 hover:bg-purple-600 text-white"
+                    : "bg-slate-700 text-slate-500 cursor-not-allowed"
                     }`}
                 >
                   {savingThought ? (
@@ -745,8 +745,8 @@ const DailyPage: React.FC = () => {
                 onClick={saveSleepRecord}
                 disabled={!sleepTime || !wakeTime || savingSleep}
                 className={`mt-4 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all w-full sm:w-auto ${sleepTime && wakeTime
-                    ? "bg-indigo-500 hover:bg-indigo-600 text-white"
-                    : "bg-slate-700 text-slate-500 cursor-not-allowed"
+                  ? "bg-indigo-500 hover:bg-indigo-600 text-white"
+                  : "bg-slate-700 text-slate-500 cursor-not-allowed"
                   }`}
               >
                 {savingSleep ? (
