@@ -49,6 +49,15 @@ from youtube_service import (
     get_learning_path_videos
 )
 
+from enhanced_habits import (
+    EnhancedHabitCreate,
+    EnhancedCheckinCreate,
+    SkipHabitRequest,
+    HabitStreakManager,
+    DailyChallengeManager,
+    HabitAnalytics
+)
+
 from datetime import datetime, date, timedelta
 import calendar
 
@@ -1999,4 +2008,357 @@ async def get_incomplete_habits_today(user: User = Depends(get_current_user)):
         }
     except Exception as e:
         logging.error(f"Error getting incomplete habits: {str(e)}")
+        raise HTTPException(500, str(e))
+
+@app.post("/habits/enhanced")
+async def create_enhanced_habit(
+    habit: EnhancedHabitCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create a habit with enhanced properties"""
+    try:
+        habit_data = {
+            "user_id": user.id,
+            "name": habit.name,
+            "why": habit.why,
+            "time": habit.time,
+            "category": habit.category,
+            "icon": habit.icon,
+            "color": habit.color,
+            "goal_type": habit.goal_type,
+            "goal_value": habit.goal_value,
+            "goal_unit": habit.goal_unit,
+            "difficulty": habit.difficulty,
+            "created_at": datetime.now().isoformat()
+        }
+        
+        response = supabase.table('habits').insert(habit_data).execute()
+        
+        return {"success": True, "habit": response.data[0] if response.data else None}
+    except Exception as e:
+        logging.error(f"Error creating enhanced habit: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/checkins/enhanced")
+async def create_enhanced_checkin(
+    checkin: EnhancedCheckinCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create a checkin with enhanced data"""
+    try:
+        # Check for existing checkin
+        existing = supabase.table('checkins').select('*').eq(
+            'user_id', user.id
+        ).eq('habit_id', checkin.habit_id).eq('date', checkin.date).execute()
+        
+        checkin_data = {
+            "user_id": user.id,
+            "habit_id": checkin.habit_id,
+            "date": checkin.date,
+            "completed": checkin.completed,
+            "value": checkin.value or 1,
+            "note": checkin.note,
+            "mood": checkin.mood,
+            "difficulty_felt": checkin.difficulty_felt,
+            "time_spent": checkin.time_spent,
+            "completed_at": datetime.now().isoformat() if checkin.completed else None
+        }
+        
+        if existing.data:
+            response = supabase.table('checkins').update(checkin_data).eq(
+                'id', existing.data[0]['id']
+            ).execute()
+        else:
+            response = supabase.table('checkins').insert(checkin_data).execute()
+        
+        # Update streak if completed
+        if checkin.completed:
+            streak = HabitStreakManager.update_streak(user.id, checkin.habit_id, checkin.date)
+            
+            # Update habit total completions
+            supabase.rpc('increment_habit_completions', {
+                'habit_id': checkin.habit_id
+            }).execute()
+        
+        # Check daily challenges
+        challenge_result = DailyChallengeManager.update_challenge_progress(user.id)
+        
+        return {
+            "success": True,
+            "checkin": response.data[0] if response.data else None,
+            "streak_updated": checkin.completed,
+            "challenges_completed": challenge_result.get('completed_challenges', []),
+            "xp_earned": challenge_result.get('xp_earned', 0)
+        }
+    except Exception as e:
+        logging.error(f"Error creating enhanced checkin: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/habits/{habit_id}/skip")
+async def skip_habit(
+    habit_id: int,
+    skip_request: SkipHabitRequest,
+    user: User = Depends(get_current_user)
+):
+    """Skip a habit with a reason (doesn't break streak for valid reasons)"""
+    try:
+        valid_reasons = ['sick', 'travel', 'rest', 'emergency']
+        
+        checkin_data = {
+            "user_id": user.id,
+            "habit_id": habit_id,
+            "date": skip_request.date,
+            "completed": False,
+            "skip_reason": skip_request.reason
+        }
+        
+        # Check if skip reason preserves streak
+        preserves_streak = skip_request.reason in valid_reasons
+        
+        response = supabase.table('checkins').insert(checkin_data).execute()
+        
+        return {
+            "success": True,
+            "preserves_streak": preserves_streak,
+            "message": f"Habit skipped due to: {skip_request.reason}" + 
+                      (" (streak preserved)" if preserves_streak else " (streak may be affected)")
+        }
+    except Exception as e:
+        logging.error(f"Error skipping habit: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/habits/streaks")
+async def get_all_habit_streaks(user: User = Depends(get_current_user)):
+    """Get streaks for all habits"""
+    try:
+        streaks = HabitStreakManager.get_habit_streaks(user.id)
+        at_risk = HabitStreakManager.check_streak_at_risk(user.id)
+        
+        return {
+            "streaks": streaks,
+            "at_risk": at_risk,
+            "total_active_streaks": len([s for s in streaks if s['current_streak'] > 0])
+        }
+    except Exception as e:
+        logging.error(f"Error getting streaks: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/habits/{habit_id}/analytics")
+async def get_habit_analytics(
+    habit_id: int,
+    days: int = 30,
+    user: User = Depends(get_current_user)
+):
+    """Get detailed analytics for a specific habit"""
+    try:
+        performance = HabitAnalytics.get_habit_performance(user.id, habit_id, days)
+        return performance
+    except Exception as e:
+        logging.error(f"Error getting habit analytics: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+# ==================== DAILY CHALLENGES ====================
+
+@app.get("/challenges/daily")
+async def get_daily_challenges(user: User = Depends(get_current_user)):
+    """Get today's challenges"""
+    try:
+        challenges = DailyChallengeManager.generate_daily_challenges(user.id)
+        
+        # Update progress
+        DailyChallengeManager.update_challenge_progress(user.id)
+        
+        # Re-fetch to get updated status
+        today = date.today().strftime('%Y-%m-%d')
+        updated = supabase.table('daily_challenges').select('*').eq(
+            'user_id', user.id
+        ).eq('date', today).execute()
+        
+        return {
+            "challenges": updated.data or challenges,
+            "date": today
+        }
+    except Exception as e:
+        logging.error(f"Error getting challenges: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/challenges/{challenge_id}/complete")
+async def complete_challenge(
+    challenge_id: int,
+    user: User = Depends(get_current_user)
+):
+    """Manually mark a challenge as complete (for bonus challenges)"""
+    try:
+        challenge = supabase.table('daily_challenges').select('*').eq(
+            'id', challenge_id
+        ).eq('user_id', user.id).single().execute()
+        
+        if not challenge.data:
+            raise HTTPException(404, "Challenge not found")
+        
+        if challenge.data['completed']:
+            return {"message": "Challenge already completed"}
+        
+        # Mark as complete
+        supabase.table('daily_challenges').update({
+            'completed': True,
+            'progress': 1
+        }).eq('id', challenge_id).execute()
+        
+        # Award XP
+        xp_reward = challenge.data['xp_reward']
+        user_data = supabase.table('users').select('total_xp').eq('id', user.id).single().execute()
+        current_xp = user_data.data.get('total_xp', 0) if user_data.data else 0
+        
+        supabase.table('users').update({
+            'total_xp': current_xp + xp_reward
+        }).eq('id', user.id).execute()
+        
+        return {
+            "success": True,
+            "xp_earned": xp_reward,
+            "message": "Challenge completed! 🎉"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error completing challenge: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+# ==================== ANALYTICS & INSIGHTS ====================
+
+@app.get("/analytics/correlations")
+async def get_correlation_insights(user: User = Depends(get_current_user)):
+    """Get correlation insights between sleep, habits, and mood"""
+    try:
+        insights = HabitAnalytics.get_correlation_insights(user.id)
+        return insights
+    except Exception as e:
+        logging.error(f"Error getting correlations: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/analytics/prediction")
+async def get_today_prediction(user: User = Depends(get_current_user)):
+    """Get prediction for today's habit completion"""
+    try:
+        prediction = HabitAnalytics.get_prediction(user.id)
+        return prediction
+    except Exception as e:
+        logging.error(f"Error getting prediction: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/analytics/export")
+async def export_user_data(
+    format: str = "json",
+    user: User = Depends(get_current_user)
+):
+    """Export all user data"""
+    try:
+        # Gather all data
+        habits = supabase.table('habits').select('*').eq('user_id', user.id).execute()
+        checkins = supabase.table('checkins').select('*').eq('user_id', user.id).execute()
+        thoughts = supabase.table('daily_thoughts').select('*').eq('user_id', user.id).execute()
+        sleep = supabase.table('sleep_records').select('*').eq('user_id', user.id).execute()
+        streaks = supabase.table('habit_streaks').select('*').eq('user_id', user.id).execute()
+        
+        data = {
+            "exported_at": datetime.now().isoformat(),
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email
+            },
+            "habits": habits.data or [],
+            "checkins": checkins.data or [],
+            "thoughts": thoughts.data or [],
+            "sleep_records": sleep.data or [],
+            "streaks": streaks.data or []
+        }
+        
+        if format == "csv":
+            # Would need to implement CSV conversion
+            pass
+        
+        return data
+    except Exception as e:
+        logging.error(f"Error exporting data: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+# ==================== HABIT TEMPLATES ====================
+
+@app.get("/habits/templates")
+async def get_habit_templates(
+    category: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get habit templates"""
+    try:
+        query = supabase.table('habit_templates').select('*')
+        
+        if category:
+            query = query.eq('category', category)
+        
+        response = query.order('popularity', desc=True).execute()
+        
+        return {
+            "templates": response.data or [],
+            "categories": ["health", "productivity", "mindfulness", "learning", "general"]
+        }
+    except Exception as e:
+        logging.error(f"Error getting templates: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/habits/from-template/{template_id}")
+async def create_habit_from_template(
+    template_id: int,
+    user: User = Depends(get_current_user)
+):
+    """Create a habit from a template"""
+    try:
+        template = supabase.table('habit_templates').select('*').eq(
+            'id', template_id
+        ).single().execute()
+        
+        if not template.data:
+            raise HTTPException(404, "Template not found")
+        
+        t = template.data
+        
+        habit_data = {
+            "user_id": user.id,
+            "name": t['name'],
+            "why": t['description'],
+            "time": t['suggested_time'] or "09:00",
+            "category": t['category'],
+            "icon": t['icon'],
+            "goal_type": t['goal_type'],
+            "goal_value": t['goal_value'],
+            "goal_unit": t['goal_unit'],
+            "difficulty": t['difficulty'],
+            "created_at": datetime.now().isoformat()
+        }
+        
+        response = supabase.table('habits').insert(habit_data).execute()
+        
+        # Increment template popularity
+        supabase.table('habit_templates').update({
+            'popularity': t['popularity'] + 1
+        }).eq('id', template_id).execute()
+        
+        return {"success": True, "habit": response.data[0] if response.data else None}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error creating from template: {str(e)}")
         raise HTTPException(500, str(e))
