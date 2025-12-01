@@ -2316,70 +2316,136 @@ async def get_habit_analytics(
 
 @app.get("/challenges/daily")
 async def get_daily_challenges(user: User = Depends(get_current_user)):
-    """Get today's challenges"""
+    """Get today's daily challenges"""
     try:
-        challenges = DailyChallengeManager.generate_daily_challenges(user.id)
-        
-        # Update progress
-        DailyChallengeManager.update_challenge_progress(user.id)
-        
-        # Re-fetch to get updated status
-        today = date.today().strftime('%Y-%m-%d')
-        updated = supabase.table('daily_challenges').select('*').eq(
-            'user_id', user.id
-        ).eq('date', today).execute()
-        
-        return {
-            "challenges": updated.data or challenges,
-            "date": today
-        }
+        challenges = challenges_service.get_daily_challenges(user.id)
+        return challenges
     except Exception as e:
-        logging.error(f"Error getting challenges: {str(e)}")
+        logging.error(f"Error getting daily challenges: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/challenges/weekly")
+async def get_weekly_challenges(user: User = Depends(get_current_user)):
+    """Get this week's challenges"""
+    try:
+        challenges = challenges_service.get_weekly_challenges(user.id)
+        return challenges
+    except Exception as e:
+        logging.error(f"Error getting weekly challenges: {str(e)}")
         raise HTTPException(500, str(e))
 
 
 @app.post("/challenges/{challenge_id}/complete")
 async def complete_challenge(
-    challenge_id: int,
+    challenge_id: str,
     user: User = Depends(get_current_user)
 ):
-    """Manually mark a challenge as complete (for bonus challenges)"""
+    """Complete a challenge and claim XP"""
     try:
-        challenge = supabase.table('daily_challenges').select('*').eq(
-            'id', challenge_id
-        ).eq('user_id', user.id).single().execute()
+        result = challenges_service.complete_challenge(user.id, challenge_id)
         
-        if not challenge.data:
-            raise HTTPException(404, "Challenge not found")
+        if result.get('success'):
+            # Invalidate cache
+            invalidate_cache(f"user:{user.id}")
         
-        if challenge.data['completed']:
-            return {"message": "Challenge already completed"}
-        
-        # Mark as complete
-        supabase.table('daily_challenges').update({
-            'completed': True,
-            'progress': 1
-        }).eq('id', challenge_id).execute()
-        
-        # Award XP
-        xp_reward = challenge.data['xp_reward']
-        user_data = supabase.table('users').select('total_xp').eq('id', user.id).single().execute()
-        current_xp = user_data.data.get('total_xp', 0) if user_data.data else 0
-        
-        supabase.table('users').update({
-            'total_xp': current_xp + xp_reward
-        }).eq('id', user.id).execute()
-        
-        return {
-            "success": True,
-            "xp_earned": xp_reward,
-            "message": "Challenge completed! 🎉"
-        }
-    except HTTPException:
-        raise
+        return result
     except Exception as e:
         logging.error(f"Error completing challenge: {str(e)}")
         raise HTTPException(500, str(e))
+
+
+@app.get("/challenges/history")
+async def get_challenge_history(
+    days: int = 7,
+    user: User = Depends(get_current_user)
+):
+    """Get challenge completion history"""
+    try:
+        from datetime import date, timedelta
+        
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+        
+        response = supabase.table('challenge_completions').select('*').eq(
+            'user_id', user.id
+        ).gte('date', start_date.strftime('%Y-%m-%d')).lte(
+            'date', end_date.strftime('%Y-%m-%d')
+        ).order('date', desc=True).execute()
+        
+        return {
+            "history": response.data or [],
+            "total_xp_earned": sum(c.get('xp_earned', 0) for c in (response.data or []))
+        }
+    except Exception as e:
+        logging.error(f"Error getting challenge history: {str(e)}")
+        raise HTTPException(500, str(e))
+    
+
+# ==================== STREAK ENDPOINTS ====================
+
+@app.get("/streak/details")
+async def get_streak_details(user: User = Depends(get_current_user)):
+    """Get detailed streak information"""
+    try:
+        details = streak_service.get_streak_details(user.id)
+        return details
+    except Exception as e:
+        logging.error(f"Error getting streak details: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/streak/at-risk")
+async def check_streak_at_risk(user: User = Depends(get_current_user)):
+    """Check if streak is at risk"""
+    try:
+        result = streak_service.check_streak_at_risk(user.id)
+        return result
+    except Exception as e:
+        logging.error(f"Error checking streak risk: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/streak/milestones")
+async def get_streak_milestones(user: User = Depends(get_current_user)):
+    """Get streak milestones"""
+    try:
+        details = streak_service.get_streak_details(user.id)
+        return {
+            "milestones": details.get('milestones', []),
+            "next_milestone": details.get('next_milestone'),
+            "current_streak": details.get('current_streak', 0)
+        }
+    except Exception as e:
+        logging.error(f"Error getting milestones: {str(e)}")
+        raise HTTPException(500, str(e))
+
+
+# ==================== CACHE ENDPOINTS ====================
+
+@app.get("/cache/stats")
+async def get_cache_stats(user: User = Depends(get_current_user)):
+    """Get cache statistics (admin only)"""
+    return cache.get_stats()
+
+
+@app.post("/cache/clear")
+async def clear_cache(user: User = Depends(get_current_user)):
+    """Clear cache (admin only)"""
+    cache.clear()
+    return {"message": "Cache cleared"}
+
+
+# ==================== HEALTH CHECK ====================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "cache_stats": cache.get_stats()
+    }
 
 
 # ==================== ANALYTICS & INSIGHTS ====================
