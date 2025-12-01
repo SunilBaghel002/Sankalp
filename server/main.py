@@ -263,13 +263,34 @@ async def google_callback(request_body: GoogleCallbackRequest):
         raise HTTPException(500, f"Authentication failed: {str(e)}")
 
 
-@app.get("/me", response_model=UserOut)
+@app.get("/me")
 async def get_me(user: User = Depends(get_current_user)):
-    # Fetch latest user data from Supabase
-    response = supabase.table('users').select('*').eq('id', user.id).single().execute()
-    if response.data:
-        return UserOut(**response.data)
-    raise HTTPException(404, "User not found")
+    """Get current user info"""
+    try:
+        # Fetch latest user data from Supabase
+        response = supabase.table('users').select('*').eq('id', user.id).single().execute()
+        
+        if response.data:
+            return {
+                "id": response.data.get("id"),
+                "email": response.data.get("email"),
+                "name": response.data.get("name"),
+                "deposit_paid": response.data.get("deposit_paid", False),
+                "current_streak": response.data.get("current_streak", 0),
+                "total_xp": response.data.get("total_xp", 0),
+                "badges": response.data.get("badges", []),
+                "email_verified": response.data.get("email_verified", False),
+            }
+        
+        raise HTTPException(404, "User not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in /me endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to fetch user: {str(e)}")
 
 
 @app.post("/deposit-paid")
@@ -315,17 +336,31 @@ async def create_habits(
         raise HTTPException(500, "Failed to save habits")
 
 
-@app.get("/habits", response_model=List[HabitOut])
+@app.get("/habits")
 async def get_habits(user: User = Depends(get_current_user)):
+    """Get user's habits"""
     try:
         response = supabase.table('habits').select('*').eq('user_id', user.id).execute()
         
         if response.data:
-            return [HabitOut(**habit) for habit in response.data]
+            return [
+                {
+                    "id": habit["id"],
+                    "user_id": habit["user_id"],
+                    "name": habit["name"],
+                    "why": habit.get("why", ""),
+                    "time": habit.get("time", "09:00"),
+                    "calendar_event_id": habit.get("calendar_event_id"),
+                }
+                for habit in response.data
+            ]
         return []
+        
     except Exception as e:
         logging.error(f"Error fetching habits: {str(e)}")
-        raise HTTPException(500, "Failed to fetch habits")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to fetch habits: {str(e)}")
 
 
 @app.post("/checkins")
@@ -333,7 +368,14 @@ async def create_checkin(
     checkin: CheckInCreate,
     user: User = Depends(get_current_user)
 ):
+    """Create or update a checkin"""
     try:
+        # Validate date format
+        try:
+            datetime.strptime(checkin.date, '%Y-%m-%d')
+        except ValueError:
+            raise HTTPException(400, f"Invalid date format: {checkin.date}. Use YYYY-MM-DD")
+        
         # Check if checkin already exists
         existing = supabase.table('checkins').select('*').eq(
             'user_id', user.id
@@ -357,27 +399,108 @@ async def create_checkin(
                 "completed": checkin.completed
             }).execute()
         
+        # Update user's current streak if needed
+        await update_user_streak(user.id)
+        
         return {"message": "Check-in saved!", "data": response.data}
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error saving checkin: {str(e)}")
-        raise HTTPException(500, "Failed to save check-in")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to save check-in: {str(e)}")
 
-
+async def update_user_streak(user_id: int):
+    """Update user's current streak after a checkin"""
+    try:
+        # Get habits count
+        habits_response = supabase.table('habits').select('id').eq('user_id', user_id).execute()
+        total_habits = len(habits_response.data) if habits_response.data else 0
+        
+        if total_habits == 0:
+            return
+        
+        # Get all checkins
+        checkins_response = supabase.table('checkins').select('*').eq('user_id', user_id).execute()
+        checkins = checkins_response.data or []
+        
+        # Group by date
+        checkins_by_date = {}
+        for checkin in checkins:
+            date_str = checkin['date']
+            if date_str not in checkins_by_date:
+                checkins_by_date[date_str] = []
+            if checkin['completed']:
+                checkins_by_date[date_str].append(checkin['habit_id'])
+        
+        # Calculate current streak
+        today = date.today()
+        current_streak = 0
+        current_date = today
+        
+        while True:
+            date_str = current_date.strftime('%Y-%m-%d')
+            
+            if date_str in checkins_by_date:
+                completed_habits = len(set(checkins_by_date[date_str]))
+                if completed_habits == total_habits:
+                    current_streak += 1
+                    current_date = current_date - timedelta(days=1)
+                else:
+                    break
+            else:
+                if current_streak == 0:
+                    current_date = current_date - timedelta(days=1)
+                    if (today - current_date).days > 1:
+                        break
+                else:
+                    break
+        
+        # Count total completed days
+        total_completed_days = sum(
+            1 for date_str, habit_ids in checkins_by_date.items()
+            if len(set(habit_ids)) == total_habits
+        )
+        
+        # Update user
+        supabase.table('users').update({
+            'current_streak': current_streak,
+        }).eq('id', user_id).execute()
+        
+    except Exception as e:
+        logging.error(f"Error updating streak: {str(e)}")
+        
 @app.get("/checkins/{date}")
 async def get_checkins(date: str, user: User = Depends(get_current_user)):
+    """Get checkins for a specific date"""
     try:
+        # Validate date format
+        try:
+            datetime.strptime(date, '%Y-%m-%d')
+        except ValueError:
+            raise HTTPException(400, f"Invalid date format: {date}. Use YYYY-MM-DD")
+        
         response = supabase.table('checkins').select('*').eq(
             'user_id', user.id
         ).eq('date', date).execute()
         
         return response.data if response.data else []
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logging.error(f"Error fetching checkins: {str(e)}")
-        raise HTTPException(500, "Failed to fetch check-ins")
+        logging.error(f"Error fetching checkins for {date}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Return empty array instead of error for better UX
+        return []
 
 
 @app.get("/stats")
 async def get_user_stats(user: User = Depends(get_current_user)):
+    """Get user statistics"""
     try:
         # Get all checkins for the user
         checkins_response = supabase.table('checkins').select('*').eq('user_id', user.id).execute()
@@ -398,35 +521,24 @@ async def get_user_stats(user: User = Depends(get_current_user)):
                 "deposit_paid": user.deposit_paid
             }
         
-        # Group checkins by date (ensure consistent string format)
+        # Group checkins by date
         checkins_by_date = {}
         for checkin in checkins:
-            # Ensure date is in string format YYYY-MM-DD
-            checkin_date = checkin['date']
-            if isinstance(checkin_date, str):
-                date_str = checkin_date
-            else:
-                # Convert date object to string
-                date_str = str(checkin_date)
-            
+            date_str = str(checkin['date'])
             if date_str not in checkins_by_date:
                 checkins_by_date[date_str] = []
             if checkin['completed']:
                 checkins_by_date[date_str].append(checkin['habit_id'])
         
-        # Get all unique dates and sort them
+        # Calculate streaks
         all_dates = sorted(checkins_by_date.keys())
-        
-        # Calculate longest streak by scanning all dates
         longest_streak = 0
         current_streak_count = 0
         
-        # Convert string dates to date objects for proper iteration
         if all_dates:
             start_date = datetime.strptime(all_dates[0], '%Y-%m-%d').date()
             end_date = datetime.strptime(all_dates[-1], '%Y-%m-%d').date()
             
-            # Iterate through all dates from start to end
             current_check_date = start_date
             while current_check_date <= end_date:
                 date_str = current_check_date.strftime('%Y-%m-%d')
@@ -443,44 +555,34 @@ async def get_user_stats(user: User = Depends(get_current_user)):
                 
                 current_check_date += timedelta(days=1)
         
-        # Calculate current streak (counting backwards from today)
+        # Calculate current streak
         today = date.today()
         current_streak = 0
         current_date = today
         
-        # Go backwards from today
         while True:
             date_str = current_date.strftime('%Y-%m-%d')
             
             if date_str in checkins_by_date:
-                # Check if all habits were completed on this date
                 completed_habits = len(set(checkins_by_date[date_str]))
                 if completed_habits == total_habits:
                     current_streak += 1
                     current_date = current_date - timedelta(days=1)
                 else:
-                    # Partial completion breaks the streak
                     break
             else:
-                # No checkins for this date
-                # If we haven't started counting yet (streak is 0), go back one more day
-                # This handles the case where user hasn't checked in today yet
                 if current_streak == 0:
                     current_date = current_date - timedelta(days=1)
-                    # Don't go back more than 2 days when looking for streak start
                     if (today - current_date).days > 1:
                         break
                 else:
-                    # Streak is broken
                     break
         
-        # Count total completed days (days with 100% habit completion)
-        total_completed_days = 0
-        for date_str, habit_ids in checkins_by_date.items():
-            if len(set(habit_ids)) == total_habits:
-                total_completed_days += 1
-        
-        logging.info(f"Stats for user {user.email}: streak={current_streak}, longest={longest_streak}, completed={total_completed_days}")
+        # Count total completed days
+        total_completed_days = sum(
+            1 for date_str, habit_ids in checkins_by_date.items()
+            if len(set(habit_ids)) == total_habits
+        )
         
         return {
             "total_habits": total_habits,
@@ -490,14 +592,14 @@ async def get_user_stats(user: User = Depends(get_current_user)):
             "longest_streak": longest_streak,
             "deposit_paid": user.deposit_paid
         }
+        
     except Exception as e:
         logging.error(f"Error fetching stats: {str(e)}")
         import traceback
         traceback.print_exc()
-        # Return default values instead of error
         return {
             "total_habits": 0,
-            "total_checkins": 0, 
+            "total_checkins": 0,
             "current_streak": 0,
             "total_completed_days": 0,
             "longest_streak": 0,
@@ -924,17 +1026,19 @@ async def create_or_update_daily_thought(
 
 @app.get("/daily-thought/{date}")
 async def get_daily_thought(date: str, user: User = Depends(get_current_user)):
+    """Get daily thought for a specific date"""
     try:
         response = supabase.table('daily_thoughts').select('*').eq(
             'user_id', user.id
         ).eq('date', date).execute()
         
-        if response.data:
+        if response.data and len(response.data) > 0:
             return response.data[0]
         return None
+        
     except Exception as e:
         logging.error(f"Error fetching daily thought: {str(e)}")
-        raise HTTPException(500, "Failed to fetch thought")
+        return None
 
 
 @app.get("/daily-thoughts")
@@ -1012,17 +1116,19 @@ async def create_or_update_sleep_record(
 
 @app.get("/sleep-record/{date}")
 async def get_sleep_record(date: str, user: User = Depends(get_current_user)):
+    """Get sleep record for a specific date"""
     try:
         response = supabase.table('sleep_records').select('*').eq(
             'user_id', user.id
         ).eq('date', date).execute()
         
-        if response.data:
+        if response.data and len(response.data) > 0:
             return response.data[0]
         return None
+        
     except Exception as e:
         logging.error(f"Error fetching sleep record: {str(e)}")
-        raise HTTPException(500, "Failed to fetch sleep record")
+        return None
 
 
 @app.get("/sleep-records")
