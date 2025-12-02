@@ -15,6 +15,7 @@ import {
     ChevronDown,
     Trophy,
     Moon,
+    Swords,
 } from "lucide-react";
 
 interface NavItem {
@@ -100,6 +101,14 @@ const BottomNavBar: React.FC = () => {
             path: "/badges",
             color: "text-slate-400",
             activeColor: "text-yellow-400",
+        },
+        {
+            id: "challenge",
+            label: "Challenge",
+            icon: Swords,
+            path: "/challenges",
+            color: "text-slate-400",
+            activeColor: "text-red-400",
         },
     ];
 

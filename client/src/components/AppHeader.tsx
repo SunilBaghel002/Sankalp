@@ -16,6 +16,7 @@ import {
     Trophy,
     Moon,
     XCircle,
+    Swords
 } from "lucide-react";
 
 interface AppHeaderProps {
@@ -44,6 +45,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
         { label: "Sleep", icon: Moon, path: "/sleep", color: "text-indigo-400" },
         { label: "Badges", icon: Trophy, path: "/badges", color: "text-yellow-400" },
         { label: "Settings", icon: Settings, path: "/settings", color: "text-slate-400" },
+        { label: "Challenges", icon: Swords, path: "/challenges", color: "text-red-400" },
     ];
 
     const handleLogout = () => {
