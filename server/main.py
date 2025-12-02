@@ -18,6 +18,7 @@ from schemas import (
     MonthlyAnalysisRequest, AnalysisResponse, HabitCompletionData
 )
 
+from datetime import date
 from push_notification_service import push_service, SmartNotificationScheduler
 from pydantic import BaseModel
 from typing import List, Optional
@@ -178,6 +179,26 @@ class NotificationPreferences(BaseModel):
 class TestNotificationRequest(BaseModel):
     title: str = "Test Notification"
     body: str = "This is a test notification from Sankalp!"
+    
+class UserXP(Base):
+    __tablename__ = "user_xp"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True)
+    total_xp = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# Challenge Completion Model
+class ChallengeCompletion(Base):
+    __tablename__ = "challenge_completions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    challenge_id = Column(String)
+    date = Column(Date)
+    xp_earned = Column(Integer)
+    completed_at = Column(DateTime, default=datetime.utcnow)
 
 used_codes = set()
 
@@ -2317,14 +2338,107 @@ async def get_habit_analytics(
 # ==================== DAILY CHALLENGES ====================
 
 @app.get("/challenges/daily")
-async def get_daily_challenges(user: User = Depends(get_current_user)):
-    """Get today's daily challenges"""
-    try:
-        challenges = challenges_service.get_daily_challenges(user.id)
-        return challenges
-    except Exception as e:
-        logging.error(f"Error getting daily challenges: {str(e)}")
-        raise HTTPException(500, str(e))
+async def get_daily_challenges(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    today = date.today()
+    today_str = today.isoformat()
+    
+    # Get user's habits
+    habits = db.query(Habit).filter(Habit.user_id == current_user.id).all()
+    
+    # Get today's checkins
+    checkins = db.query(Checkin).filter(
+        Checkin.user_id == current_user.id,
+        Checkin.date == today
+    ).all()
+    
+    completed_habit_ids = [c.habit_id for c in checkins if c.completed]
+    
+    # Get completed challenges for today
+    completed_challenges = db.query(ChallengeCompletion).filter(
+        ChallengeCompletion.user_id == current_user.id,
+        ChallengeCompletion.date == today
+    ).all()
+    completed_challenge_ids = [c.challenge_id for c in completed_challenges]
+    
+    # Get user stats for streak challenges
+    stats = db.query(UserStats).filter(UserStats.user_id == current_user.id).first()
+    current_streak = stats.current_streak if stats else 0
+    
+    # Generate challenges based on habits
+    challenges = []
+    total_xp = 0
+    total_earned = 0
+    
+    # Challenge 1: Complete all habits
+    all_completed = len(completed_habit_ids) == len(habits) and len(habits) > 0
+    challenge_1 = {
+        "id": f"complete_all_{today_str}",
+        "name": "Complete All Habits",
+        "description": "Mark all your habits as complete for today",
+        "icon": "🎯",
+        "xp_reward": 50,
+        "type": "completion",
+        "completed": f"complete_all_{today_str}" in completed_challenge_ids,
+        "claimable": all_completed and f"complete_all_{today_str}" not in completed_challenge_ids,
+        "date": today_str,
+        "requirement": f"Complete all {len(habits)} habits",
+        "progress": len(completed_habit_ids),
+        "target": len(habits)
+    }
+    challenges.append(challenge_1)
+    total_xp += challenge_1["xp_reward"]
+    if challenge_1["completed"]:
+        total_earned += challenge_1["xp_reward"]
+    
+    # Challenge 2: Streak challenge (if streak >= 3)
+    if current_streak >= 3:
+        challenge_2 = {
+            "id": f"streak_3_{today_str}",
+            "name": f"Maintain {current_streak} Day Streak",
+            "description": f"You're on a {current_streak} day streak! Complete all habits to keep it going.",
+            "icon": "🔥",
+            "xp_reward": min(current_streak * 10, 100),  # Cap at 100 XP
+            "type": "streak",
+            "completed": f"streak_3_{today_str}" in completed_challenge_ids,
+            "claimable": all_completed and f"streak_3_{today_str}" not in completed_challenge_ids,
+            "date": today_str,
+            "requirement": "Complete all habits to maintain streak"
+        }
+        challenges.append(challenge_2)
+        total_xp += challenge_2["xp_reward"]
+        if challenge_2["completed"]:
+            total_earned += challenge_2["xp_reward"]
+    
+    # Challenge 3: First habit challenge for each habit
+    for habit in habits[:2]:  # Limit to first 2 habits for daily challenges
+        habit_completed = habit.id in completed_habit_ids
+        challenge = {
+            "id": f"habit_{habit.id}_{today_str}",
+            "name": f"Complete: {habit.name}",
+            "description": f"Complete your '{habit.name}' habit for today",
+            "icon": "✅",
+            "xp_reward": 25,
+            "type": "completion",
+            "completed": f"habit_{habit.id}_{today_str}" in completed_challenge_ids,
+            "claimable": habit_completed and f"habit_{habit.id}_{today_str}" not in completed_challenge_ids,
+            "date": today_str,
+            "habit_id": habit.id,
+            "habit_name": habit.name
+        }
+        challenges.append(challenge)
+        total_xp += challenge["xp_reward"]
+        if challenge["completed"]:
+            total_earned += challenge["xp_reward"]
+    
+    completed_count = len([c for c in challenges if c["completed"]])
+    
+    return {
+        "date": today_str,
+        "challenges": challenges,
+        "total_xp_available": total_xp,
+        "completed_count": completed_count,
+        "total_xp_earned": total_earned
+    }
 
 
 @app.get("/challenges/weekly")
@@ -2341,20 +2455,58 @@ async def get_weekly_challenges(user: User = Depends(get_current_user)):
 @app.post("/challenges/{challenge_id}/complete")
 async def complete_challenge(
     challenge_id: str,
-    user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """Complete a challenge and claim XP"""
-    try:
-        result = challenges_service.complete_challenge(user.id, challenge_id)
-        
-        if result.get('success'):
-            # Invalidate cache
-            invalidate_cache(f"user:{user.id}")
-        
-        return result
-    except Exception as e:
-        logging.error(f"Error completing challenge: {str(e)}")
-        raise HTTPException(500, str(e))
+    today = date.today()
+    
+    # Check if already completed
+    existing = db.query(ChallengeCompletion).filter(
+        ChallengeCompletion.user_id == current_user.id,
+        ChallengeCompletion.challenge_id == challenge_id,
+        ChallengeCompletion.date == today
+    ).first()
+    
+    if existing:
+        return {"success": False, "message": "Challenge already completed"}
+    
+    # Get challenge details to verify it's claimable and get XP
+    challenges_response = await get_daily_challenges(current_user, db)
+    challenge = next((c for c in challenges_response["challenges"] if c["id"] == challenge_id), None)
+    
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    
+    if not challenge["claimable"]:
+        raise HTTPException(status_code=400, detail="Challenge is not claimable yet")
+    
+    xp_earned = challenge["xp_reward"]
+    
+    # Record completion
+    completion = ChallengeCompletion(
+        user_id=current_user.id,
+        challenge_id=challenge_id,
+        date=today,
+        xp_earned=xp_earned
+    )
+    db.add(completion)
+    
+    # Update user XP
+    user_xp = db.query(UserXP).filter(UserXP.user_id == current_user.id).first()
+    if not user_xp:
+        user_xp = UserXP(user_id=current_user.id, total_xp=0)
+        db.add(user_xp)
+    
+    user_xp.total_xp += xp_earned
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "xp_earned": xp_earned,
+        "total_xp": user_xp.total_xp,
+        "challenge": challenge
+    }
 
 
 @app.get("/challenges/history")
@@ -2881,3 +3033,24 @@ async def trigger_evening_reminder():
     except Exception as e:
         logging.error(f"Error in evening reminder: {str(e)}")
         raise HTTPException(500, str(e))
+    
+@app.get("/user/xp")
+async def get_user_xp(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user_xp = db.query(UserXP).filter(UserXP.user_id == current_user.id).first()
+    
+    if not user_xp:
+        user_xp = UserXP(user_id=current_user.id, total_xp=0)
+        db.add(user_xp)
+        db.commit()
+        db.refresh(user_xp)
+    
+    level = (user_xp.total_xp // 1000) + 1
+    xp_for_current_level = (level - 1) * 1000
+    xp_for_next_level = level * 1000
+    
+    return {
+        "total_xp": user_xp.total_xp,
+        "level": level,
+        "xp_for_current_level": xp_for_current_level,
+        "xp_for_next_level": xp_for_next_level
+    }
