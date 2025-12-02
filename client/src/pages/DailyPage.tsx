@@ -41,7 +41,7 @@ import Confetti from "react-confetti";
 import { useWindowSize } from "react-use";
 import CalendarSync from "../components/CalendarSync";
 import PageLayout from "../components/PageLayout";
-import DailyChallenges from '../components/DailyChallenges';
+import DailyChallengesSummary from '../components/DailyChallengesSummary';
 
 const DailyPage: React.FC = () => {
   const navigate = useNavigate();
@@ -889,7 +889,7 @@ const DailyPage: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
               >
-                <DailyChallenges compact />
+                <DailyChallengesSummary />
               </motion.div>
 
               {/* Motivational Quote */}
