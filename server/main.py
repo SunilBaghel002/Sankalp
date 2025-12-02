@@ -179,26 +179,6 @@ class NotificationPreferences(BaseModel):
 class TestNotificationRequest(BaseModel):
     title: str = "Test Notification"
     body: str = "This is a test notification from Sankalp!"
-    
-class UserXP(Base):
-    __tablename__ = "user_xp"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True)
-    total_xp = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-# Challenge Completion Model
-class ChallengeCompletion(Base):
-    __tablename__ = "challenge_completions"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    challenge_id = Column(String)
-    date = Column(Date)
-    xp_earned = Column(Integer)
-    completed_at = Column(DateTime, default=datetime.utcnow)
 
 used_codes = set()
 
@@ -2335,178 +2315,286 @@ async def get_habit_analytics(
         raise HTTPException(500, str(e))
 
 
-# ==================== DAILY CHALLENGES ====================
+# ==================== CHALLENGES & XP SYSTEM (SUPABASE VERSION) ====================
+
+@app.get("/user/xp")
+async def get_user_xp(current_user: User = Depends(get_current_user)):
+    """Get user XP and level info"""
+    try:
+        # Try to get existing XP record
+        response = supabase.table('user_xp').select('*').eq(
+            'user_id', current_user.id
+        ).execute()
+        
+        if response.data and len(response.data) > 0:
+            user_xp = response.data[0]
+            total_xp = user_xp.get('total_xp', 0)
+        else:
+            # Create new XP record
+            supabase.table('user_xp').insert({
+                'user_id': current_user.id,
+                'total_xp': 0
+            }).execute()
+            total_xp = 0
+        
+        level = (total_xp // 1000) + 1
+        xp_for_current_level = (level - 1) * 1000
+        xp_for_next_level = level * 1000
+        
+        return {
+            "total_xp": total_xp,
+            "level": level,
+            "xp_for_current_level": xp_for_current_level,
+            "xp_for_next_level": xp_for_next_level
+        }
+    except Exception as e:
+        logging.error(f"Error getting user XP: {str(e)}")
+        return {
+            "total_xp": 0,
+            "level": 1,
+            "xp_for_current_level": 0,
+            "xp_for_next_level": 1000
+        }
+
 
 @app.get("/challenges/daily")
-async def get_daily_challenges(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    today = date.today()
-    today_str = today.isoformat()
-    
-    # Get user's habits
-    habits = db.query(Habit).filter(Habit.user_id == current_user.id).all()
-    
-    # Get today's checkins
-    checkins = db.query(Checkin).filter(
-        Checkin.user_id == current_user.id,
-        Checkin.date == today
-    ).all()
-    
-    completed_habit_ids = [c.habit_id for c in checkins if c.completed]
-    
-    # Get completed challenges for today
-    completed_challenges = db.query(ChallengeCompletion).filter(
-        ChallengeCompletion.user_id == current_user.id,
-        ChallengeCompletion.date == today
-    ).all()
-    completed_challenge_ids = [c.challenge_id for c in completed_challenges]
-    
-    # Get user stats for streak challenges
-    stats = db.query(UserStats).filter(UserStats.user_id == current_user.id).first()
-    current_streak = stats.current_streak if stats else 0
-    
-    # Generate challenges based on habits
-    challenges = []
-    total_xp = 0
-    total_earned = 0
-    
-    # Challenge 1: Complete all habits
-    all_completed = len(completed_habit_ids) == len(habits) and len(habits) > 0
-    challenge_1 = {
-        "id": f"complete_all_{today_str}",
-        "name": "Complete All Habits",
-        "description": "Mark all your habits as complete for today",
-        "icon": "🎯",
-        "xp_reward": 50,
-        "type": "completion",
-        "completed": f"complete_all_{today_str}" in completed_challenge_ids,
-        "claimable": all_completed and f"complete_all_{today_str}" not in completed_challenge_ids,
-        "date": today_str,
-        "requirement": f"Complete all {len(habits)} habits",
-        "progress": len(completed_habit_ids),
-        "target": len(habits)
-    }
-    challenges.append(challenge_1)
-    total_xp += challenge_1["xp_reward"]
-    if challenge_1["completed"]:
-        total_earned += challenge_1["xp_reward"]
-    
-    # Challenge 2: Streak challenge (if streak >= 3)
-    if current_streak >= 3:
-        challenge_2 = {
-            "id": f"streak_3_{today_str}",
-            "name": f"Maintain {current_streak} Day Streak",
-            "description": f"You're on a {current_streak} day streak! Complete all habits to keep it going.",
-            "icon": "🔥",
-            "xp_reward": min(current_streak * 10, 100),  # Cap at 100 XP
-            "type": "streak",
-            "completed": f"streak_3_{today_str}" in completed_challenge_ids,
-            "claimable": all_completed and f"streak_3_{today_str}" not in completed_challenge_ids,
-            "date": today_str,
-            "requirement": "Complete all habits to maintain streak"
-        }
-        challenges.append(challenge_2)
-        total_xp += challenge_2["xp_reward"]
-        if challenge_2["completed"]:
-            total_earned += challenge_2["xp_reward"]
-    
-    # Challenge 3: First habit challenge for each habit
-    for habit in habits[:2]:  # Limit to first 2 habits for daily challenges
-        habit_completed = habit.id in completed_habit_ids
-        challenge = {
-            "id": f"habit_{habit.id}_{today_str}",
-            "name": f"Complete: {habit.name}",
-            "description": f"Complete your '{habit.name}' habit for today",
-            "icon": "✅",
-            "xp_reward": 25,
-            "type": "completion",
-            "completed": f"habit_{habit.id}_{today_str}" in completed_challenge_ids,
-            "claimable": habit_completed and f"habit_{habit.id}_{today_str}" not in completed_challenge_ids,
-            "date": today_str,
-            "habit_id": habit.id,
-            "habit_name": habit.name
-        }
-        challenges.append(challenge)
-        total_xp += challenge["xp_reward"]
-        if challenge["completed"]:
-            total_earned += challenge["xp_reward"]
-    
-    completed_count = len([c for c in challenges if c["completed"]])
-    
-    return {
-        "date": today_str,
-        "challenges": challenges,
-        "total_xp_available": total_xp,
-        "completed_count": completed_count,
-        "total_xp_earned": total_earned
-    }
-
-
-@app.get("/challenges/weekly")
-async def get_weekly_challenges(user: User = Depends(get_current_user)):
-    """Get this week's challenges"""
+async def get_daily_challenges(current_user: User = Depends(get_current_user)):
+    """Get daily challenges based on user's habits"""
     try:
-        challenges = challenges_service.get_weekly_challenges(user.id)
-        return challenges
+        today = date.today()
+        today_str = today.isoformat()
+        
+        # Get user's habits
+        habits_response = supabase.table('habits').select('*').eq(
+            'user_id', current_user.id
+        ).execute()
+        habits = habits_response.data or []
+        
+        # Get today's checkins
+        checkins_response = supabase.table('checkins').select('*').eq(
+            'user_id', current_user.id
+        ).eq('date', today_str).execute()
+        checkins = checkins_response.data or []
+        
+        completed_habit_ids = [c['habit_id'] for c in checkins if c.get('completed')]
+        
+        # Get completed challenges for today
+        completed_response = supabase.table('challenge_completions').select('*').eq(
+            'user_id', current_user.id
+        ).eq('date', today_str).execute()
+        completed_challenge_ids = [c['challenge_id'] for c in (completed_response.data or [])]
+        
+        # Get user stats for streak
+        user_response = supabase.table('users').select('current_streak').eq(
+            'id', current_user.id
+        ).single().execute()
+        current_streak = user_response.data.get('current_streak', 0) if user_response.data else 0
+        
+        # Generate challenges
+        challenges = []
+        total_xp = 0
+        total_earned = 0
+        
+        # Challenge 1: Complete all habits
+        all_completed = len(completed_habit_ids) == len(habits) and len(habits) > 0
+        challenge_1_id = f"complete_all_{today_str}"
+        challenge_1 = {
+            "id": challenge_1_id,
+            "name": "Complete All Habits",
+            "description": "Mark all your habits as complete for today",
+            "icon": "🎯",
+            "xp_reward": 50,
+            "type": "completion",
+            "completed": challenge_1_id in completed_challenge_ids,
+            "claimable": all_completed and challenge_1_id not in completed_challenge_ids,
+            "date": today_str,
+            "requirement": f"Complete all {len(habits)} habits",
+            "progress": len(completed_habit_ids),
+            "target": len(habits)
+        }
+        challenges.append(challenge_1)
+        total_xp += challenge_1["xp_reward"]
+        if challenge_1["completed"]:
+            total_earned += challenge_1["xp_reward"]
+        
+        # Challenge 2: Streak challenge (if streak >= 3)
+        if current_streak >= 3:
+            challenge_2_id = f"streak_{current_streak}_{today_str}"
+            xp_reward = min(current_streak * 10, 100)  # Cap at 100 XP
+            challenge_2 = {
+                "id": challenge_2_id,
+                "name": f"Maintain {current_streak} Day Streak",
+                "description": f"You're on a {current_streak} day streak! Complete all habits to keep it going.",
+                "icon": "🔥",
+                "xp_reward": xp_reward,
+                "type": "streak",
+                "completed": challenge_2_id in completed_challenge_ids,
+                "claimable": all_completed and challenge_2_id not in completed_challenge_ids,
+                "date": today_str,
+                "requirement": "Complete all habits to maintain streak"
+            }
+            challenges.append(challenge_2)
+            total_xp += challenge_2["xp_reward"]
+            if challenge_2["completed"]:
+                total_earned += challenge_2["xp_reward"]
+        
+        # Challenge 3 & 4: Individual habit challenges (first 2 habits)
+        for habit in habits[:2]:
+            habit_id = habit['id']
+            habit_name = habit['name']
+            challenge_id = f"habit_{habit_id}_{today_str}"
+            habit_completed = habit_id in completed_habit_ids
+            
+            challenge = {
+                "id": challenge_id,
+                "name": f"Complete: {habit_name}",
+                "description": f"Complete your '{habit_name}' habit for today",
+                "icon": "✅",
+                "xp_reward": 25,
+                "type": "completion",
+                "completed": challenge_id in completed_challenge_ids,
+                "claimable": habit_completed and challenge_id not in completed_challenge_ids,
+                "date": today_str,
+                "habit_id": habit_id,
+                "habit_name": habit_name
+            }
+            challenges.append(challenge)
+            total_xp += challenge["xp_reward"]
+            if challenge["completed"]:
+                total_earned += challenge["xp_reward"]
+        
+        # Challenge 5: Early bird (if any habit completed before 9 AM)
+        now = datetime.now()
+        if now.hour < 12:  # Only show in morning
+            early_bird_id = f"early_bird_{today_str}"
+            # Check if any habit was completed early (simplified check)
+            early_completed = len(completed_habit_ids) > 0 and now.hour < 9
+            
+            challenge = {
+                "id": early_bird_id,
+                "name": "Early Bird",
+                "description": "Complete at least one habit before 9 AM",
+                "icon": "🌅",
+                "xp_reward": 30,
+                "type": "early_bird",
+                "completed": early_bird_id in completed_challenge_ids,
+                "claimable": early_completed and early_bird_id not in completed_challenge_ids,
+                "date": today_str,
+                "requirement": "Complete any habit before 9 AM"
+            }
+            challenges.append(challenge)
+            total_xp += challenge["xp_reward"]
+            if challenge["completed"]:
+                total_earned += challenge["xp_reward"]
+        
+        completed_count = len([c for c in challenges if c["completed"]])
+        
+        return {
+            "date": today_str,
+            "challenges": challenges,
+            "total_xp_available": total_xp,
+            "completed_count": completed_count,
+            "total_xp_earned": total_earned
+        }
+        
     except Exception as e:
-        logging.error(f"Error getting weekly challenges: {str(e)}")
-        raise HTTPException(500, str(e))
+        logging.error(f"Error getting daily challenges: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "date": date.today().isoformat(),
+            "challenges": [],
+            "total_xp_available": 0,
+            "completed_count": 0,
+            "total_xp_earned": 0
+        }
 
 
 @app.post("/challenges/{challenge_id}/complete")
 async def complete_challenge(
     challenge_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user)
 ):
-    today = date.today()
-    
-    # Check if already completed
-    existing = db.query(ChallengeCompletion).filter(
-        ChallengeCompletion.user_id == current_user.id,
-        ChallengeCompletion.challenge_id == challenge_id,
-        ChallengeCompletion.date == today
-    ).first()
-    
-    if existing:
-        return {"success": False, "message": "Challenge already completed"}
-    
-    # Get challenge details to verify it's claimable and get XP
-    challenges_response = await get_daily_challenges(current_user, db)
-    challenge = next((c for c in challenges_response["challenges"] if c["id"] == challenge_id), None)
-    
-    if not challenge:
-        raise HTTPException(status_code=404, detail="Challenge not found")
-    
-    if not challenge["claimable"]:
-        raise HTTPException(status_code=400, detail="Challenge is not claimable yet")
-    
-    xp_earned = challenge["xp_reward"]
-    
-    # Record completion
-    completion = ChallengeCompletion(
-        user_id=current_user.id,
-        challenge_id=challenge_id,
-        date=today,
-        xp_earned=xp_earned
-    )
-    db.add(completion)
-    
-    # Update user XP
-    user_xp = db.query(UserXP).filter(UserXP.user_id == current_user.id).first()
-    if not user_xp:
-        user_xp = UserXP(user_id=current_user.id, total_xp=0)
-        db.add(user_xp)
-    
-    user_xp.total_xp += xp_earned
-    
-    db.commit()
-    
-    return {
-        "success": True,
-        "xp_earned": xp_earned,
-        "total_xp": user_xp.total_xp,
-        "challenge": challenge
-    }
+    """Complete/claim a challenge and earn XP"""
+    try:
+        today = date.today()
+        today_str = today.isoformat()
+        
+        # Check if already completed
+        existing = supabase.table('challenge_completions').select('*').eq(
+            'user_id', current_user.id
+        ).eq('challenge_id', challenge_id).eq('date', today_str).execute()
+        
+        if existing.data and len(existing.data) > 0:
+            return {"success": False, "message": "Challenge already completed"}
+        
+        # Get challenge details to verify it's claimable
+        challenges_response = await get_daily_challenges(current_user)
+        challenge = next(
+            (c for c in challenges_response["challenges"] if c["id"] == challenge_id), 
+            None
+        )
+        
+        if not challenge:
+            raise HTTPException(status_code=404, detail="Challenge not found")
+        
+        if not challenge.get("claimable"):
+            raise HTTPException(status_code=400, detail="Challenge is not claimable yet. Complete the required habits first!")
+        
+        xp_earned = challenge["xp_reward"]
+        
+        # Record completion
+        supabase.table('challenge_completions').insert({
+            'user_id': current_user.id,
+            'challenge_id': challenge_id,
+            'date': today_str,
+            'xp_earned': xp_earned,
+            'completed_at': datetime.now().isoformat()
+        }).execute()
+        
+        # Update user XP
+        # First, get current XP
+        xp_response = supabase.table('user_xp').select('*').eq(
+            'user_id', current_user.id
+        ).execute()
+        
+        if xp_response.data and len(xp_response.data) > 0:
+            current_xp = xp_response.data[0].get('total_xp', 0)
+            new_xp = current_xp + xp_earned
+            
+            supabase.table('user_xp').update({
+                'total_xp': new_xp,
+                'updated_at': datetime.now().isoformat()
+            }).eq('user_id', current_user.id).execute()
+        else:
+            # Create new XP record
+            new_xp = xp_earned
+            supabase.table('user_xp').insert({
+                'user_id': current_user.id,
+                'total_xp': new_xp
+            }).execute()
+        
+        # Also update users table total_xp for leaderboard
+        supabase.table('users').update({
+            'total_xp': new_xp
+        }).eq('id', current_user.id).execute()
+        
+        logging.info(f"✅ Challenge {challenge_id} completed by user {current_user.id}, earned {xp_earned} XP")
+        
+        return {
+            "success": True,
+            "xp_earned": xp_earned,
+            "total_xp": new_xp,
+            "challenge": challenge
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error completing challenge: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to complete challenge: {str(e)}")
 
 
 @app.get("/challenges/history")
@@ -2516,8 +2604,6 @@ async def get_challenge_history(
 ):
     """Get challenge completion history"""
     try:
-        from datetime import date, timedelta
-        
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
         
@@ -2527,12 +2613,26 @@ async def get_challenge_history(
             'date', end_date.strftime('%Y-%m-%d')
         ).order('date', desc=True).execute()
         
+        history = response.data or []
+        total_xp = sum(c.get('xp_earned', 0) for c in history)
+        
         return {
-            "history": response.data or [],
-            "total_xp_earned": sum(c.get('xp_earned', 0) for c in (response.data or []))
+            "history": history,
+            "total_xp_earned": total_xp,
+            "days": days
         }
     except Exception as e:
         logging.error(f"Error getting challenge history: {str(e)}")
+        return {"history": [], "total_xp_earned": 0, "days": days}
+    
+@app.get("/challenges/weekly")
+async def get_weekly_challenges(user: User = Depends(get_current_user)):
+    """Get this week's challenges"""
+    try:
+        challenges = challenges_service.get_weekly_challenges(user.id)
+        return challenges
+    except Exception as e:
+        logging.error(f"Error getting weekly challenges: {str(e)}")
         raise HTTPException(500, str(e))
     
 
@@ -3033,24 +3133,3 @@ async def trigger_evening_reminder():
     except Exception as e:
         logging.error(f"Error in evening reminder: {str(e)}")
         raise HTTPException(500, str(e))
-    
-@app.get("/user/xp")
-async def get_user_xp(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    user_xp = db.query(UserXP).filter(UserXP.user_id == current_user.id).first()
-    
-    if not user_xp:
-        user_xp = UserXP(user_id=current_user.id, total_xp=0)
-        db.add(user_xp)
-        db.commit()
-        db.refresh(user_xp)
-    
-    level = (user_xp.total_xp // 1000) + 1
-    xp_for_current_level = (level - 1) * 1000
-    xp_for_next_level = level * 1000
-    
-    return {
-        "total_xp": user_xp.total_xp,
-        "level": level,
-        "xp_for_current_level": xp_for_current_level,
-        "xp_for_next_level": xp_for_next_level
-    }
