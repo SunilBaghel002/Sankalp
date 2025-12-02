@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useStore } from "../store/useStore";
 import PageLayout from "../components/PageLayout";
+import StreakDetails from '../components/StreakDetails';
 
 interface DayStatus {
   date: string;
@@ -356,6 +357,7 @@ const StreakPage: React.FC = () => {
 
         {/* Main Content */}
         <div className="max-w-7xl mx-auto p-4 pb-20">
+          <StreakDetails />
           {/* Hero Stats */}
           <motion.div
             initial={{ y: -20, opacity: 0 }}

@@ -75,14 +75,7 @@ from challenges_service import ChallengesService
 from streak_service import StreakService
 
 # Initialize services
-challenges_service = ChallengesService(supabase)
-streak_service = StreakService(supabase)
 
-# Add middlewares (order matters - first added = outermost)
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(ErrorHandlingMiddleware)
-app.add_middleware(LoggingMiddleware)
-app.add_middleware(RateLimitMiddleware)
 
 from datetime import datetime, date, timedelta
 import calendar
@@ -121,6 +114,15 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+challenges_service = ChallengesService(supabase)
+streak_service = StreakService(supabase)
+
+# Add middlewares (order matters - first added = outermost)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(ErrorHandlingMiddleware)
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 class GoogleCallbackRequest(BaseModel):
     code: str

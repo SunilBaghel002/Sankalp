@@ -41,6 +41,7 @@ import Confetti from "react-confetti";
 import { useWindowSize } from "react-use";
 import CalendarSync from "../components/CalendarSync";
 import PageLayout from "../components/PageLayout";
+import DailyChallenges from '../components/DailyChallenges';
 
 const DailyPage: React.FC = () => {
   const navigate = useNavigate();
@@ -882,6 +883,14 @@ const DailyPage: React.FC = () => {
                   </div>
                 </motion.div>
               )}
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+              >
+                <DailyChallenges compact />
+              </motion.div>
 
               {/* Motivational Quote */}
               <div className="bg-gradient-to-br from-purple-900/50 to-blue-900/50 rounded-2xl p-6 border border-purple-500/30">
