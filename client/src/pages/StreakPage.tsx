@@ -1,27 +1,30 @@
 // src/pages/StreakPage.tsx
 import React, { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   Flame,
-  TrendingUp,
   Calendar,
   CheckCircle,
   XCircle,
-  Award,
   AlertCircle,
   ArrowLeft,
   Target,
   Zap,
   Star,
   ChevronRight,
-  Home,
-  BarChart3,
+  ChevronLeft,
   CalendarDays,
+  DollarSign,
+  Trophy,
+  Loader2,
+  Share2,
+  Download,
+  RefreshCw,
 } from "lucide-react";
 import { useStore } from "../store/useStore";
 import PageLayout from "../components/PageLayout";
-import StreakDetails from '../components/StreakDetails';
+import StreakDetails from "../components/StreakDetails";
 
 interface DayStatus {
   date: string;
@@ -40,42 +43,34 @@ const StreakPage: React.FC = () => {
   const { user, habits } = useStore();
   const [loading, setLoading] = useState(true);
   const [dayStatuses, setDayStatuses] = useState<DayStatus[]>([]);
-  const [currentStreak, setCurrentStreak] = useState(0);
-  const [longestStreak, setLongestStreak] = useState(0);
   const [totalCompletedDays, setTotalCompletedDays] = useState(0);
   const [challengeStartDate, setChallengeStartDate] = useState<Date>(new Date());
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [actualDaysPassed, setActualDaysPassed] = useState(0);
+  const [activeView, setActiveView] = useState<"details" | "calendar">("details");
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Helper function to get date string in YYYY-MM-DD format (local timezone)
   const getDateString = (date: Date): string => {
     const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   };
 
-  // Helper function to compare dates (ignoring time)
-  const isSameDate = (date1: Date, date2: Date): boolean => {
-    return getDateString(date1) === getDateString(date2);
-  };
-
   useEffect(() => {
-    fetchStreakData();
+    fetchCalendarData();
   }, []);
 
-  const fetchStreakData = async () => {
+  const fetchCalendarData = async () => {
     try {
       setLoading(true);
 
-      // Get habits first
       const habitsResponse = await fetch("http://localhost:8000/habits", {
         method: "GET",
         credentials: "include",
       });
 
       if (!habitsResponse.ok) {
-        console.error("Failed to fetch habits");
         setLoading(false);
         return;
       }
@@ -88,31 +83,16 @@ const StreakPage: React.FC = () => {
         return;
       }
 
-      // Get stats from backend
-      const statsResponse = await fetch("http://localhost:8000/stats", {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (statsResponse.ok) {
-        const stats = await statsResponse.json();
-        setCurrentStreak(stats.current_streak || 0);
-        setLongestStreak(stats.longest_streak || 0);
-      }
-
-      // Determine start date - USE EARLIEST HABIT CREATION DATE
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
       let startDate: Date | null = null;
 
-      // Use earliest habit creation date as the TRUE start date
       if (habitsData && habitsData.length > 0) {
         for (const habit of habitsData) {
           if (habit.created_at) {
             const habitDate = new Date(habit.created_at);
             habitDate.setHours(0, 0, 0, 0);
-
             if (!isNaN(habitDate.getTime())) {
               if (!startDate || habitDate < startDate) {
                 startDate = habitDate;
@@ -122,34 +102,26 @@ const StreakPage: React.FC = () => {
         }
       }
 
-      // Fallback to today if no valid habit date found
       if (!startDate || isNaN(startDate.getTime())) {
         startDate = new Date(today);
       }
 
-      // Ensure start date is not in the future
       if (startDate > today) {
         startDate = new Date(today);
       }
 
-      console.log("📅 Challenge Start Date:", getDateString(startDate));
       setChallengeStartDate(startDate);
 
-      // Calculate how many days have actually passed since start
-      const daysPassed = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      const daysPassed = Math.floor(
+        (today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+      ) + 1;
       const actualDays = Math.min(Math.max(daysPassed, 1), 100);
       setActualDaysPassed(actualDays);
 
-      console.log("📊 Days passed since start:", actualDays);
-
-      // Build 100-day calendar
       const allDays: DayStatus[] = [];
       let tempTotalCompleted = 0;
       const todayStr = getDateString(today);
 
-      console.log("📍 Today's date:", todayStr);
-
-      // Fetch ALL data for the 100 days
       for (let i = 0; i < 100; i++) {
         const checkDate = new Date(startDate);
         checkDate.setDate(startDate.getDate() + i);
@@ -172,21 +144,20 @@ const StreakPage: React.FC = () => {
           completionPercentage: 0,
         };
 
-        // Only fetch data for past days and today
         if (!isFuture) {
           try {
             const checkinsResponse = await fetch(
               `http://localhost:8000/checkins/${dateStr}`,
-              {
-                method: "GET",
-                credentials: "include",
-              }
+              { method: "GET", credentials: "include" }
             );
 
             if (checkinsResponse.ok) {
               const checkinsData = await checkinsResponse.json();
-              const completedCount = checkinsData.filter((c: any) => c.completed).length;
-              const completionPercent = totalHabits > 0 ? (completedCount / totalHabits) * 100 : 0;
+              const completedCount = checkinsData.filter(
+                (c: any) => c.completed
+              ).length;
+              const completionPercent =
+                totalHabits > 0 ? (completedCount / totalHabits) * 100 : 0;
 
               dayStatus.habitsCompleted = completedCount;
               dayStatus.completionPercentage = Math.round(completionPercent);
@@ -195,87 +166,73 @@ const StreakPage: React.FC = () => {
               if (dayStatus.completed) {
                 tempTotalCompleted++;
               }
-
-              console.log(`Day ${i + 1} (${dateStr}):`, {
-                isToday,
-                isFuture,
-                isPast,
-                completed: dayStatus.completed,
-                habitsCompleted: completedCount,
-                totalHabits
-              });
             }
           } catch (error) {
             console.error(`Error fetching checkins for ${dateStr}:`, error);
           }
-        } else {
-          console.log(`Day ${i + 1} (${dateStr}): Future day`);
         }
 
         allDays.push(dayStatus);
       }
 
-      console.log("✅ Total Perfect Days:", tempTotalCompleted);
-      console.log("📊 Days Remaining:", 100 - tempTotalCompleted);
-
       setDayStatuses(allDays);
       setTotalCompletedDays(tempTotalCompleted);
 
-      // Auto-select the current week (based on days passed, not today's position)
       const currentWeekIndex = Math.floor((actualDays - 1) / 7);
       setSelectedWeek(Math.max(0, currentWeekIndex));
 
       setLoading(false);
     } catch (error) {
-      console.error("Error fetching streak data:", error);
+      console.error("Error fetching calendar data:", error);
       setLoading(false);
     }
   };
 
-  const getStreakMessage = () => {
-    if (currentStreak === 0) return "Start your streak today! 💪";
-    if (currentStreak < 7) return "Keep going! You're building momentum! 🚀";
-    if (currentStreak < 30) return "Amazing progress! Keep the fire burning! 🔥";
-    if (currentStreak < 50) return "Incredible! You're unstoppable! ⚡";
-    if (currentStreak < 75) return "Champion mode activated! 🏆";
-    if (currentStreak < 100) return "Almost there! Don't stop now! 🎯";
-    return "You did it! 100 days complete! 🎉";
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchCalendarData();
+    setRefreshing(false);
   };
 
   const getDayColor = (status: DayStatus) => {
-    if (status.isFuture) return "bg-slate-800 border-slate-700 text-slate-500";
+    if (status.isFuture) return "bg-slate-800/50 border-slate-700/50 text-slate-600";
 
     if (status.isToday) {
-      if (status.completed) return "bg-green-500 border-green-400 text-white shadow-lg shadow-green-500/50";
+      if (status.completed)
+        return "bg-green-500 border-green-400 text-white shadow-lg shadow-green-500/30 ring-2 ring-green-400 ring-offset-2 ring-offset-slate-900";
       if (status.habitsCompleted > 0) {
-        if (status.completionPercentage >= 80) return "bg-yellow-500 border-yellow-400 text-white shadow-lg shadow-yellow-500/50";
-        if (status.completionPercentage >= 60) return "bg-yellow-600 border-yellow-500 text-white";
-        if (status.completionPercentage >= 40) return "bg-orange-500 border-orange-400 text-white";
-        return "bg-orange-600 border-orange-500 text-white";
+        if (status.completionPercentage >= 80)
+          return "bg-yellow-500 border-yellow-400 text-white shadow-lg shadow-yellow-500/30 ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-900";
+        return "bg-orange-500 border-orange-400 text-white ring-2 ring-orange-400 ring-offset-2 ring-offset-slate-900";
       }
-      return "bg-slate-700 border-orange-400 text-orange-300 shadow-lg shadow-orange-500/30";
+      return "bg-slate-700 border-orange-500 text-orange-300 ring-2 ring-orange-500 ring-offset-2 ring-offset-slate-900 animate-pulse";
     }
 
-    if (status.completed) return "bg-green-500 border-green-400 text-white";
+    if (status.completed) return "bg-green-500/80 border-green-500 text-white";
 
     if (status.habitsCompleted > 0) {
-      if (status.completionPercentage >= 80) return "bg-yellow-500/70 border-yellow-500 text-yellow-100";
-      if (status.completionPercentage >= 60) return "bg-yellow-600/50 border-yellow-600 text-yellow-200";
-      if (status.completionPercentage >= 40) return "bg-orange-600/40 border-orange-600 text-orange-200";
-      return "bg-red-600/30 border-red-600 text-red-200";
+      if (status.completionPercentage >= 80)
+        return "bg-yellow-500/60 border-yellow-500/80 text-yellow-100";
+      if (status.completionPercentage >= 50)
+        return "bg-orange-500/50 border-orange-500/70 text-orange-100";
+      return "bg-red-500/30 border-red-500/50 text-red-200";
     }
 
-    return "bg-red-900/20 border-red-800/50 text-red-400";
+    return "bg-red-900/30 border-red-800/30 text-red-400/60";
   };
 
   const getDayIcon = (status: DayStatus) => {
-    if (status.isFuture) return <span className="text-[10px]">-</span>;
-    if (status.completed) return <CheckCircle className="w-3 h-3" />;
+    if (status.isFuture) return null;
+    if (status.completed) return <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />;
     if (status.habitsCompleted > 0) {
-      return <span className="text-[9px] font-bold">{status.habitsCompleted}/{status.totalHabits}</span>;
+      return (
+        <span className="text-[8px] sm:text-[10px] font-bold">
+          {status.habitsCompleted}/{status.totalHabits}
+        </span>
+      );
     }
-    if (status.isToday) return <span className="text-[9px]">0/{status.totalHabits}</span>;
-    return <XCircle className="w-3 h-3 opacity-60" />;
+    if (status.isPast) return <XCircle className="w-3 h-3 sm:w-4 sm:h-4 opacity-50" />;
+    return null;
   };
 
   const getTooltipText = (status: DayStatus) => {
@@ -284,26 +241,16 @@ const StreakPage: React.FC = () => {
       weekday: "short",
       day: "numeric",
       month: "short",
-      year: "numeric",
     });
 
-    if (status.isFuture) return `Day ${status.dayNumber} (${dateFormatted}): Future`;
-    if (status.completed) return `Day ${status.dayNumber} (${dateFormatted}): ✅ Perfect! All ${status.totalHabits} habits (100%)`;
-    if (status.habitsCompleted > 0) return `Day ${status.dayNumber} (${dateFormatted}): ⚠️ ${status.habitsCompleted}/${status.totalHabits} habits (${status.completionPercentage}%)`;
-    if (status.isToday) return `Day ${status.dayNumber} (${dateFormatted}): 📍 Today - Complete your habits!`;
-    return `Day ${status.dayNumber} (${dateFormatted}): ❌ Missed - 0/${status.totalHabits} habits`;
-  };
-
-  const getAchievementBadges = () => {
-    const badges = [];
-    if (longestStreak >= 7) badges.push({ icon: "🔥", title: "Week Warrior", desc: `${longestStreak}-day best!` });
-    if (longestStreak >= 30) badges.push({ icon: "⚡", title: "Month Master", desc: "30+ day streak!" });
-    if (longestStreak >= 50) badges.push({ icon: "💪", title: "Halfway Hero", desc: "50+ day streak!" });
-    if (longestStreak >= 75) badges.push({ icon: "🏆", title: "Almost There", desc: "75+ day streak!" });
-    if (totalCompletedDays >= 100) badges.push({ icon: "🎉", title: "Champion", desc: "100 days complete!" });
-    if (totalCompletedDays >= 50) badges.push({ icon: "🌟", title: "50 Perfect Days", desc: "Halfway done!" });
-    if (currentStreak >= 14) badges.push({ icon: "💎", title: "Two Weeks", desc: "14+ days current!" });
-    return badges;
+    if (status.isFuture) return `Day ${status.dayNumber} - ${dateFormatted}: Upcoming`;
+    if (status.completed)
+      return `Day ${status.dayNumber} - ${dateFormatted}: ✅ Perfect! (${status.totalHabits}/${status.totalHabits})`;
+    if (status.habitsCompleted > 0)
+      return `Day ${status.dayNumber} - ${dateFormatted}: ${status.habitsCompleted}/${status.totalHabits} (${status.completionPercentage}%)`;
+    if (status.isToday)
+      return `Day ${status.dayNumber} - ${dateFormatted}: 📍 Today - Complete your habits!`;
+    return `Day ${status.dayNumber} - ${dateFormatted}: ❌ Missed`;
   };
 
   const getCurrentWeekDays = () => {
@@ -311,332 +258,465 @@ const StreakPage: React.FC = () => {
     const totalWeeks = Math.ceil(dayStatuses.length / weekSize);
     const start = selectedWeek * weekSize;
     const end = Math.min(start + weekSize, dayStatuses.length);
-    return { days: dayStatuses.slice(start, end), totalWeeks, currentWeek: selectedWeek + 1 };
+    return {
+      days: dayStatuses.slice(start, end),
+      totalWeeks,
+      currentWeek: selectedWeek + 1,
+    };
+  };
+
+  const getProgressColor = () => {
+    const percentage = (totalCompletedDays / 100) * 100;
+    if (percentage >= 75) return "from-green-500 to-emerald-500";
+    if (percentage >= 50) return "from-yellow-500 to-orange-500";
+    if (percentage >= 25) return "from-orange-500 to-red-500";
+    return "from-red-500 to-pink-500";
+  };
+
+  const getChallengeStatus = () => {
+    if (totalCompletedDays >= 100) {
+      return {
+        status: "completed",
+        title: "🎉 Challenge Complete!",
+        message: "Congratulations! You've completed the 100-day challenge. Claim your ₹500 refund!",
+        color: "from-green-600 to-emerald-600",
+        borderColor: "border-green-500",
+      };
+    }
+    if (totalCompletedDays >= 75) {
+      return {
+        status: "final",
+        title: "🔥 Final Stretch!",
+        message: `Only ${100 - totalCompletedDays} perfect days to go. You're so close!`,
+        color: "from-orange-600 to-red-600",
+        borderColor: "border-orange-500",
+      };
+    }
+    if (totalCompletedDays >= 50) {
+      return {
+        status: "halfway",
+        title: "💪 Halfway There!",
+        message: `${totalCompletedDays} perfect days completed. Keep the momentum going!`,
+        color: "from-yellow-600 to-orange-600",
+        borderColor: "border-yellow-500",
+      };
+    }
+    return {
+      status: "ongoing",
+      title: "🚀 Challenge in Progress",
+      message: `${totalCompletedDays} perfect days so far. Every day counts!`,
+      color: "from-blue-600 to-purple-600",
+      borderColor: "border-blue-500",
+    };
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-center">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"
-          />
-          <p className="text-white text-lg">Loading streak data...</p>
+      <PageLayout pageTitle="Streak Details" pageIcon={Flame}>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"
+            />
+            <p className="text-white text-lg">Loading streak data...</p>
+          </div>
         </div>
-      </div>
+      </PageLayout>
     );
   }
 
   if (!habits || habits.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
-        <div className="text-center">
-          <AlertCircle className="w-20 h-20 text-orange-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-4">No Habits Set</h2>
-          <p className="text-slate-400 mb-6">Set up your 5 habits to start tracking your streak!</p>
-          <button
-            onClick={() => navigate("/onboarding")}
-            className="bg-orange-500 hover:bg-orange-600 px-6 py-3 rounded-xl font-semibold transition-all"
-          >
-            Set Up Habits
-          </button>
+      <PageLayout pageTitle="Streak Details" pageIcon={Flame}>
+        <div className="flex items-center justify-center min-h-[60vh] p-4">
+          <div className="text-center">
+            <AlertCircle className="w-20 h-20 text-orange-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold mb-4">No Habits Set</h2>
+            <p className="text-slate-400 mb-6">
+              Set up your habits to start tracking your streak!
+            </p>
+            <button
+              onClick={() => navigate("/onboarding")}
+              className="bg-orange-500 hover:bg-orange-600 px-6 py-3 rounded-xl font-semibold transition-all"
+            >
+              Set Up Habits
+            </button>
+          </div>
         </div>
-      </div>
+      </PageLayout>
     );
   }
 
   const weekData = getCurrentWeekDays();
-  const badges = getAchievementBadges();
   const daysRemaining = 100 - totalCompletedDays;
+  const challengeStatus = getChallengeStatus();
 
   return (
     <PageLayout pageTitle="Streak Details" pageIcon={Flame}>
-      <div className="min-h-screen bg-slate-950 text-white">
-
-        {/* Main Content */}
-        <div className="max-w-7xl mx-auto p-4 pb-20">
-          <StreakDetails />
-          {/* Hero Stats */}
-          <motion.div
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="text-center mb-8"
-          >
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", duration: 0.8 }}
-              className="inline-flex items-center justify-center p-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full mb-6 shadow-2xl shadow-orange-500/50"
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* View Toggle & Refresh */}
+        <div className="flex items-center justify-between">
+          <div className="flex bg-slate-800 rounded-xl p-1 border border-slate-700">
+            <button
+              onClick={() => setActiveView("details")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${activeView === "details"
+                  ? "bg-orange-500 text-white"
+                  : "text-slate-400 hover:text-white"
+                }`}
             >
-              <Flame className="w-20 h-20 text-white" />
-            </motion.div>
-
-            <motion.h1
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="text-6xl font-bold mb-3"
+              <Flame className="w-4 h-4" />
+              <span className="hidden sm:inline">Streak Stats</span>
+            </button>
+            <button
+              onClick={() => setActiveView("calendar")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${activeView === "calendar"
+                  ? "bg-orange-500 text-white"
+                  : "text-slate-400 hover:text-white"
+                }`}
             >
-              {currentStreak} <span className="text-orange-400">Day{currentStreak !== 1 ? "s" : ""}</span>
-            </motion.h1>
-            <p className="text-2xl text-orange-400 mb-2">Current Streak 🔥</p>
-            <p className="text-slate-400 text-lg">{getStreakMessage()}</p>
-          </motion.div>
-
-          {/* Stats Grid */}
-          <div className="grid md:grid-cols-3 gap-4 mb-8">
-            <motion.div
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.1 }}
-              className="bg-slate-800 p-6 rounded-2xl border border-slate-700 hover:border-blue-500/50 transition-all"
-            >
-              <div className="flex items-center gap-4 mb-3">
-                <div className="bg-blue-500/10 p-3 rounded-xl">
-                  <TrendingUp className="w-8 h-8 text-blue-400" />
-                </div>
-                <div>
-                  <p className="text-3xl font-bold">{longestStreak}</p>
-                  <p className="text-sm text-slate-400">Longest Streak</p>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500">Your best performance so far</p>
-            </motion.div>
-
-            <motion.div
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="bg-slate-800 p-6 rounded-2xl border border-slate-700 hover:border-yellow-500/50 transition-all"
-            >
-              <div className="flex items-center gap-4 mb-3">
-                <div className="bg-yellow-500/10 p-3 rounded-xl">
-                  <Award className="w-8 h-8 text-yellow-400" />
-                </div>
-                <div>
-                  <p className="text-3xl font-bold">{totalCompletedDays}</p>
-                  <p className="text-sm text-slate-400">Perfect Days</p>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500">Days with 100% completion</p>
-            </motion.div>
-
-            <motion.div
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="bg-slate-800 p-6 rounded-2xl border border-slate-700 hover:border-green-500/50 transition-all"
-            >
-              <div className="flex items-center gap-4 mb-3">
-                <div className="bg-green-500/10 p-3 rounded-xl">
-                  <Target className="w-8 h-8 text-green-400" />
-                </div>
-                <div>
-                  <p className="text-3xl font-bold">{daysRemaining}</p>
-                  <p className="text-sm text-slate-400">Days Remaining</p>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500">Until challenge completion</p>
-            </motion.div>
+              <CalendarDays className="w-4 h-4" />
+              <span className="hidden sm:inline">100-Day Calendar</span>
+            </button>
           </div>
 
-          {/* Achievement Badges */}
-          {badges.length > 0 && (
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 rounded-2xl p-6 border border-purple-500/30 mb-8"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <Star className="w-6 h-6 text-yellow-400" />
-                <h3 className="text-xl font-bold">Achievements Unlocked</h3>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {badges.map((badge, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ scale: 0, rotate: -180 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ delay: 0.5 + index * 0.1, type: "spring" }}
-                    className="bg-slate-800/50 p-4 rounded-xl text-center border border-purple-500/20"
-                  >
-                    <div className="text-4xl mb-2">{badge.icon}</div>
-                    <p className="font-semibold text-sm mb-1">{badge.title}</p>
-                    <p className="text-xs text-slate-400">{badge.desc}</p>
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
-          {/* Weekly View Switcher */}
-          <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold">Week {weekData.currentWeek} of {weekData.totalWeeks}</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setSelectedWeek(Math.max(0, selectedWeek - 1))}
-                  disabled={selectedWeek === 0}
-                  className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-all"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setSelectedWeek(Math.min(weekData.totalWeeks - 1, selectedWeek + 1))}
-                  disabled={selectedWeek === weekData.totalWeeks - 1}
-                  className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-all"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-7 gap-3">
-              {weekData.days.map((status, index) => (
-                <motion.div
-                  key={status.dayNumber}
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: index * 0.05 }}
-                  className={`aspect-square rounded-xl flex flex-col items-center justify-center border-2 relative cursor-pointer hover:scale-110 transition-all ${getDayColor(status)}`}
-                  title={getTooltipText(status)}
-                >
-                  <span className="text-xs font-bold mb-1">{status.dayNumber}</span>
-                  {getDayIcon(status)}
-                  {status.isToday && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full animate-ping"></div>
-                  )}
-                </motion.div>
-              ))}
-            </div>
-          </div>
-
-          {/* Full Calendar Grid */}
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="bg-slate-800 rounded-2xl p-6 border border-slate-700 mb-6"
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition-all disabled:opacity-50"
           >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold">100-Day Challenge Calendar</h2>
-              <div className="flex items-center gap-2 text-sm">
-                <CalendarDays className="w-5 h-5 text-slate-400" />
-                <span className="text-slate-400">
-                  Day {actualDaysPassed} of 100
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-10 gap-2 mb-6">
-              {dayStatuses.map((status) => (
-                <motion.div
-                  key={status.dayNumber}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: Math.min(status.dayNumber * 0.003, 0.3) }}
-                  className={`aspect-square rounded-lg flex flex-col items-center justify-center text-xs font-bold border-2 relative cursor-pointer hover:scale-110 transition-transform ${getDayColor(status)}`}
-                  title={getTooltipText(status)}
-                >
-                  <span className="text-[10px]">{status.dayNumber}</span>
-                  {getDayIcon(status)}
-                  {status.isToday && (
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-400 rounded-full animate-ping"></div>
-                  )}
-                </motion.div>
-              ))}
-            </div>
-
-            {/* Legend */}
-            <div className="flex flex-wrap items-center justify-center gap-4 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-green-500 rounded border-2 border-green-400"></div>
-                <span className="text-slate-400">Perfect (100%)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-yellow-500/70 rounded border-2 border-yellow-500"></div>
-                <span className="text-slate-400">Good (80%+)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-orange-600/40 rounded border-2 border-orange-600"></div>
-                <span className="text-slate-400">Partial (40%+)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-red-900/20 rounded border-2 border-red-800/50"></div>
-                <span className="text-slate-400">Missed</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-slate-700 rounded border-2 border-orange-400 shadow-lg shadow-orange-500/30"></div>
-                <span className="text-slate-400">Today</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-slate-800 rounded border-2 border-slate-700"></div>
-                <span className="text-slate-400">Future</span>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Progress Bar */}
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.6 }}
-            className="bg-slate-800 rounded-2xl p-6 border border-slate-700 mb-6"
-          >
-            <div className="flex justify-between text-sm mb-3">
-              <span className="text-slate-400">Challenge Progress</span>
-              <span className="text-orange-400 font-bold text-lg">
-                {totalCompletedDays} / 100 days
-              </span>
-            </div>
-            <div className="bg-slate-700 rounded-full h-4 overflow-hidden mb-3">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${Math.min((totalCompletedDays / 100) * 100, 100)}%` }}
-                transition={{ duration: 1, delay: 0.7 }}
-                className="h-full bg-gradient-to-r from-orange-500 via-red-500 to-pink-500"
-              />
-            </div>
-            <p className="text-sm text-center text-slate-400">
-              {totalCompletedDays >= 100
-                ? "🎉 Challenge Complete! Claim your refund!"
-                : totalCompletedDays >= 75
-                  ? "🔥 Final stretch! Don't give up now!"
-                  : totalCompletedDays >= 50
-                    ? "💪 Halfway there! You're doing amazing!"
-                    : totalCompletedDays >= 25
-                      ? "⚡ Great progress! Keep pushing!"
-                      : "🚀 Every journey starts with a single step!"}
-            </p>
-          </motion.div>
-
-          {/* Motivational Card */}
-          {currentStreak > 0 && (
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.7 }}
-              className="bg-gradient-to-r from-orange-500/20 to-red-500/20 rounded-2xl p-6 border border-orange-500/50 text-center"
-            >
-              <Zap className="w-12 h-12 text-orange-400 mx-auto mb-3" />
-              <p className="text-xl font-bold text-orange-300 mb-2">
-                {currentStreak >= 50
-                  ? "🏆 You're in the top 1% of achievers!"
-                  : currentStreak >= 30
-                    ? "⚡ You're building an unbreakable habit!"
-                    : currentStreak >= 7
-                      ? "🔥 One week strong! Keep it up!"
-                      : "🚀 Every day counts. You've got this!"}
-              </p>
-              <p className="text-slate-400">
-                Your dedication is paying off. Keep going!
-              </p>
-            </motion.div>
-          )}
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
         </div>
+
+        <AnimatePresence mode="wait">
+          {/* Streak Details View */}
+          {activeView === "details" && (
+            <motion.div
+              key="details"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-6"
+            >
+              {/* StreakDetails Component - Main Content */}
+              <StreakDetails />
+
+              {/* Challenge Progress Card - Unique to this page */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className={`bg-gradient-to-r ${challengeStatus.color} rounded-2xl p-6 border ${challengeStatus.borderColor}`}
+              >
+                <div className="flex flex-col md:flex-row items-center gap-6">
+                  <div className="bg-white/20 p-4 rounded-2xl">
+                    <DollarSign className="w-12 h-12 text-white" />
+                  </div>
+
+                  <div className="flex-1 text-center md:text-left">
+                    <h3 className="text-2xl font-bold text-white mb-1">
+                      {challengeStatus.title}
+                    </h3>
+                    <p className="text-white/80 mb-4">
+                      {challengeStatus.message}
+                    </p>
+
+                    {/* Progress Bar */}
+                    <div className="bg-black/20 rounded-full h-4 overflow-hidden mb-2">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${Math.min((totalCompletedDays / 100) * 100, 100)}%`,
+                        }}
+                        transition={{ duration: 1, delay: 0.3 }}
+                        className="h-full bg-white/90 rounded-full"
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-sm text-white/80">
+                      <span>{totalCompletedDays} perfect days</span>
+                      <span>{daysRemaining} to go</span>
+                    </div>
+                  </div>
+
+                  <div className="text-center">
+                    <div className="text-4xl font-bold text-white">₹500</div>
+                    <div className="text-white/80 text-sm">at stake</div>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* Calendar View */}
+          {activeView === "calendar" && (
+            <motion.div
+              key="calendar"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-6"
+            >
+              {/* Quick Stats Bar */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-slate-800 rounded-xl p-4 border border-slate-700 text-center">
+                  <div className="text-3xl font-bold text-green-400">
+                    {totalCompletedDays}
+                  </div>
+                  <div className="text-xs text-slate-400">Perfect Days</div>
+                </div>
+                <div className="bg-slate-800 rounded-xl p-4 border border-slate-700 text-center">
+                  <div className="text-3xl font-bold text-orange-400">
+                    {actualDaysPassed}
+                  </div>
+                  <div className="text-xs text-slate-400">Days Passed</div>
+                </div>
+                <div className="bg-slate-800 rounded-xl p-4 border border-slate-700 text-center">
+                  <div className="text-3xl font-bold text-blue-400">
+                    {100 - actualDaysPassed}
+                  </div>
+                  <div className="text-xs text-slate-400">Days Left</div>
+                </div>
+              </div>
+
+              {/* Weekly Navigator */}
+              <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-400" />
+                    Week {weekData.currentWeek} of {weekData.totalWeeks}
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedWeek(Math.max(0, selectedWeek - 1))}
+                      disabled={selectedWeek === 0}
+                      className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-all"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <span className="text-sm text-slate-400 min-w-[80px] text-center">
+                      Days {selectedWeek * 7 + 1}-{Math.min((selectedWeek + 1) * 7, 100)}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setSelectedWeek(
+                          Math.min(weekData.totalWeeks - 1, selectedWeek + 1)
+                        )
+                      }
+                      disabled={selectedWeek === weekData.totalWeeks - 1}
+                      className="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-all"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Week Days */}
+                <div className="grid grid-cols-7 gap-3 mb-4">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <div
+                      key={day}
+                      className="text-center text-xs text-slate-500 font-medium"
+                    >
+                      {day}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-3">
+                  {weekData.days.map((status, index) => (
+                    <motion.div
+                      key={status.dayNumber}
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`aspect-square rounded-xl flex flex-col items-center justify-center border-2 relative cursor-pointer hover:scale-105 transition-all ${getDayColor(
+                        status
+                      )}`}
+                      title={getTooltipText(status)}
+                    >
+                      <span className="text-sm font-bold mb-0.5">
+                        {status.dayNumber}
+                      </span>
+                      {getDayIcon(status)}
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* Week Summary */}
+                <div className="mt-4 pt-4 border-t border-slate-700">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Week Completion</span>
+                    <span className="font-bold text-green-400">
+                      {weekData.days.filter((d) => d.completed).length}/
+                      {weekData.days.filter((d) => !d.isFuture).length} days
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Full 100-Day Grid */}
+              <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <Target className="w-6 h-6 text-orange-400" />
+                    100-Day Challenge Map
+                  </h3>
+                  <div className="flex items-center gap-2 text-sm text-slate-400">
+                    <CalendarDays className="w-4 h-4" />
+                    <span>
+                      Started:{" "}
+                      {challengeStartDate.toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 10x10 Grid */}
+                <div className="grid grid-cols-10 gap-1.5 sm:gap-2 mb-6">
+                  {dayStatuses.map((status) => (
+                    <motion.div
+                      key={status.dayNumber}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{
+                        delay: Math.min(status.dayNumber * 0.005, 0.5),
+                      }}
+                      className={`aspect-square rounded-md sm:rounded-lg flex flex-col items-center justify-center text-[8px] sm:text-xs font-bold border cursor-pointer hover:scale-110 transition-transform relative ${getDayColor(
+                        status
+                      )}`}
+                      title={getTooltipText(status)}
+                    >
+                      <span>{status.dayNumber}</span>
+                      <span className="hidden sm:block">{getDayIcon(status)}</span>
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* Legend */}
+                <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 bg-green-500 rounded border-2 border-green-400"></div>
+                    <span className="text-slate-400">Perfect</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 bg-yellow-500/60 rounded border-2 border-yellow-500"></div>
+                    <span className="text-slate-400">Partial (80%+)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 bg-orange-500/50 rounded border-2 border-orange-500"></div>
+                    <span className="text-slate-400">Some (50%+)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 bg-red-900/30 rounded border-2 border-red-800/30"></div>
+                    <span className="text-slate-400">Missed</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 bg-slate-700 rounded border-2 border-orange-500 animate-pulse"></div>
+                    <span className="text-slate-400">Today</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 bg-slate-800/50 rounded border-2 border-slate-700/50"></div>
+                    <span className="text-slate-400">Future</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Overall Progress */}
+              <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold">Overall Challenge Progress</h3>
+                  <span className="text-2xl font-bold text-orange-400">
+                    {Math.round((totalCompletedDays / 100) * 100)}%
+                  </span>
+                </div>
+
+                <div className="bg-slate-700 rounded-full h-6 overflow-hidden mb-4">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{
+                      width: `${Math.min((totalCompletedDays / 100) * 100, 100)}%`,
+                    }}
+                    transition={{ duration: 1.5, ease: "easeOut" }}
+                    className={`h-full bg-gradient-to-r ${getProgressColor()} relative overflow-hidden`}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></div>
+                  </motion.div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-green-400">
+                      {totalCompletedDays}
+                    </div>
+                    <div className="text-xs text-slate-400">Perfect</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-yellow-400">
+                      {
+                        dayStatuses.filter(
+                          (d) =>
+                            !d.isFuture &&
+                            !d.completed &&
+                            d.habitsCompleted > 0
+                        ).length
+                      }
+                    </div>
+                    <div className="text-xs text-slate-400">Partial</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-red-400">
+                      {
+                        dayStatuses.filter(
+                          (d) =>
+                            !d.isFuture &&
+                            !d.completed &&
+                            d.habitsCompleted === 0 &&
+                            d.isPast
+                        ).length
+                      }
+                    </div>
+                    <div className="text-xs text-slate-400">Missed</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-blue-400">
+                      {dayStatuses.filter((d) => d.isFuture).length}
+                    </div>
+                    <div className="text-xs text-slate-400">Remaining</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Motivational Message */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 rounded-2xl p-6 border border-purple-500/30 text-center"
+              >
+                <Zap className="w-10 h-10 text-yellow-400 mx-auto mb-3" />
+                <p className="text-xl font-bold text-white mb-2">
+                  {totalCompletedDays >= 75
+                    ? "🏆 You're in the final stretch! Don't give up now!"
+                    : totalCompletedDays >= 50
+                      ? "💪 Halfway champion! Your dedication is inspiring!"
+                      : totalCompletedDays >= 25
+                        ? "🔥 Quarter done! You're building unstoppable habits!"
+                        : "🚀 Every perfect day brings you closer to victory!"}
+                </p>
+                <p className="text-purple-200">
+                  {daysRemaining} perfect days away from claiming your ₹500 back!
+                </p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </PageLayout>
   );
