@@ -33,3 +33,5 @@ CREATE TABLE IF NOT EXISTS checkins (
 CREATE INDEX idx_users_google_id ON users(google_id);
 CREATE INDEX idx_habits_user_id ON habits(user_id);
 CREATE INDEX idx_checkins_user_date ON checkins(user_id, date);
+
+-- Create this table
