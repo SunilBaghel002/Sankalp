@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS habits (
     why TEXT NOT NULL,
     time VARCHAR(10) DEFAULT '08:00',
     created_at TIMESTAMP DEFAULT NOW()
+    hhdhgjkhjg
 );
 
 -- Check-ins table
